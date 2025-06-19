@@ -10,7 +10,7 @@ class NLPProcessor:
             raise ValueError("GEMINI_API_KEY not found in environment variables")
         
         genai.configure(api_key=api_key)
-        self.model = genai.GenerativeModel('gemini-pro')
+        self.model = genai.GenerativeModel('gemini-1.5-pro-latest')
         
         # System prompt to guide Gemini's responses
         self.system_prompt = """You are an AI assistant that helps process calendar-related commands. 
