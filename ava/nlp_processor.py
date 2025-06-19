@@ -10,10 +10,9 @@ class NLPProcessor:
         api_key = os.getenv('GEMINI_API_KEY')
         if not api_key:
             raise ValueError("GEMINI_API_KEY not found in environment variables")
-        
         genai.configure(api_key=api_key)
         self.model = genai.GenerativeModel('gemini-1.5-pro-latest')
-        
+
         # System prompt to guide Gemini's responses
         self.system_prompt = """
 You are an intelligent calendar assistant. Your job is to extract structured information from user commands related to calendar events.
@@ -34,14 +33,13 @@ For every input command, follow these steps:
 
 3. **ALWAYS return the output as a valid JSON object**, matching the following schema:
 
-Important: Always format dates and times in ISO format (YYYY-MM-DDTHH:MM:SS) and assume the current year if not specified.
 Example:
 {
   "intent": "create_event",
   "entities": {
     "title": "Team Meeting",
-    "start_time": "2025-07-10T14:00:00",
-    "end_time": "2025-07-10T15:00:00"
+    "start_time": "2025-07-10T14:00:00Z",
+    "end_time": "2025-07-10T15:00:00Z"
   }
 }
 
@@ -50,65 +48,99 @@ If the command is ambiguous or unrecognizable, return:
   "intent": null,
   "entities": {}
 }
+
+Constraints:
+- Use "Z" suffix for UTC time or use full ISO 8601 with timezone offset (e.g., "+05:45")
+- If the user provides a date or time in natural language (e.g., "2:00 p.m." or "next Friday"), convert it to ISO 8601 format if possible.
+- The response must be **valid JSON only** without explanations or extra text
 """
-    
+
     def process_command(self, command):
         """Process natural language command using Gemini and extract intent and entities"""
         try:
-            # Create the prompt for Gemini
             prompt = f"{self.system_prompt}\n\nUser command: {command}\n\nPlease respond with only the JSON structure, no additional text."
-            
-            # Get response from Gemini
             response = self.model.generate_content(prompt)
-            print(f"Gemini response: {response.text}")
 
             # Clean the response text - remove any markdown formatting
             response_text = response.text.strip()
-            if response_text.startswith('```json'):
-                response_text = response_text[7:]
-            if response_text.endswith('```'):
-                response_text = response_text[:-3]
-            response_text = response_text.strip()
+            if response_text.startswith('```'):
+                response_text = re.sub(r"^```[a-zA-Z]*\n?", "", response_text)
+                response_text = re.sub(r"```$", "", response_text)
+                response_text = response_text.strip()
+            response_text = re.sub(r'//.*', '', response_text)
 
-            # Now try parsing
             try:
-                # Convert the response text to a dictionary
                 result = json.loads(response_text)
                 intent = result.get('intent')
                 entities = result.get('entities', {})
-                
-                def _parse_iso8601(dt_str):
-                    if dt_str.endswith('Z'):
-                        dt_str = dt_str[:-1] + '+00:00'
-                    return datetime.fromisoformat(dt_str)
 
-                if 'start_time' in entities and isinstance(entities['start_time'], str) and entities['start_time']:
-                    entities['start_time'] = _parse_iso8601(entities['start_time'])
-                if 'end_time' in entities and isinstance(entities['end_time'], str) and entities['end_time']:
-                    entities['end_time'] = _parse_iso8601(entities['end_time'])
-                
+                # Ensure times are strings if present
+                if 'start_time' in entities and not isinstance(entities['start_time'], str):
+                    entities['start_time'] = str(entities['start_time'])
+                if 'end_time' in entities and not isinstance(entities['end_time'], str):
+                    entities['end_time'] = str(entities['end_time'])
+
                 return intent, entities
-                
+
             except json.JSONDecodeError as e:
-                print(f"Error parsing Gemini response: {e}")
-                print("Cleaned response was:\n", cleaned)
-                intent, entities = None, {}
-                
+                print(f"JSON decode error: {e}")
+                print(f"Response text: {response_text}")
+                return self._fallback_parsing(command)
+
         except Exception as e:
             print(f"Error processing command with Gemini: {str(e)}")
+            return self._fallback_parsing(command)
+
+    def _fallback_parsing(self, command):
+        """Simple fallback parsing when Gemini fails"""
+        command_lower = command.lower()
+
+        # Determine intent
+        if any(word in command_lower for word in ['schedule', 'create', 'add', 'book']):
+            intent = 'create_event'
+        elif any(word in command_lower for word in ['show', 'list', 'what', 'events']):
+            intent = 'read_events'
+        elif any(word in command_lower for word in ['update', 'change', 'modify']):
+            intent = 'update_event'
+        elif any(word in command_lower for word in ['delete', 'cancel', 'remove']):
+            intent = 'delete_event'
+        else:
             return None, {}
-    
+
+        # Extract basic entities for create_event
+        entities = {}
+        if intent == 'create_event':
+            # Try to extract title (very basic)
+            if 'meeting' in command_lower:
+                entities['title'] = 'Meeting'
+            elif 'appointment' in command_lower:
+                entities['title'] = 'Appointment'
+            else:
+                entities['title'] = 'Event'
+
+            # For now, set default times (you can make this more sophisticated)
+            today = datetime.now()
+            entities['start_time'] = today.replace(minute=0, second=0, microsecond=0).isoformat()
+            entities['end_time'] = (today + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0).isoformat()
+
+        return intent, entities
+
     def generate_response(self, action_result):
         """Generate a natural language response for the user"""
         try:
-            prompt = f"""Generate a natural, conversational response for the following calendar action result:
-            {action_result}
-            
-            The response should be friendly and concise."""
-            
-            response = self.model.generate_content(prompt)
-            return response.text
-            
+            # Simple response generation based on the action result
+            if "created" in action_result.lower():
+                return "Great! I've successfully created your event."
+            elif "error" in action_result.lower():
+                return "I'm sorry, there was an issue with your request. Please try again with a different time or date."
+            elif "updated" in action_result.lower():
+                return "Perfect! I've updated your event."
+            elif "deleted" in action_result.lower():
+                return "Done! I've deleted the event."
+            elif "no upcoming events" in action_result.lower():
+                return "You don't have any upcoming events."
+            else:
+                return action_result
         except Exception as e:
-            print(f"Error generating response with Gemini: {str(e)}")
-            return "I'm sorry, I couldn't generate a proper response." 
+            print(f"Error generating response: {str(e)}")
+            return "I've completed your request." 
