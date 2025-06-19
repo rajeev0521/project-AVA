@@ -33,6 +33,13 @@ class CalendarManager:
     
     def create_event(self, entities):
         """Create a new calendar event"""
+        
+        # Validate required fields
+        if not entities.get('start_time') or not entities.get('end_time'):
+            return "Start time and end time are required to create an event."
+        if entities.get('start_time') >= entities.get('end_time'):
+            return "Invalid! input time: Start time must be before end time."
+        
         try:
             event = {
                 'summary': entities.get('title', 'New Event'),
@@ -48,6 +55,7 @@ class CalendarManager:
             
             event = self.service.events().insert(calendarId='primary', body=event).execute()
             return f"Event created: {event.get('htmlLink')}"
+        
         except Exception as e:
             return f"Error creating event: {str(e)}"
     
