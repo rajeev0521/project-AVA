@@ -43,29 +43,39 @@ class NLPProcessor:
             
             # Get response from Gemini
             response = self.model.generate_content(prompt)
-            
-            # Parse the response
-            # Note: In a production environment, you'd want to add more robust parsing
-            # and error handling here
+            import json
+            import re
+
+            # Clean Gemini's text response
+            cleaned = response.text.strip()
+
+            # Remove triple-backtick code block if present
+            if cleaned.startswith("```"):
+                cleaned = re.sub(r"^```[a-zA-Z]*\n?", "", cleaned)
+                cleaned = re.sub(r"```$", "", cleaned)
+                cleaned = cleaned.strip()
+
+            # Remove inline comments from JSON (// ...)
+            cleaned = re.sub(r'//.*', '', cleaned)
+
+            # Now try parsing
             try:
-                # Convert the response text to a dictionary
-                import json
-                result = json.loads(response.text)
-                
+                result = json.loads(cleaned)
                 intent = result.get('intent')
                 entities = result.get('entities', {})
                 
                 # Convert string timestamps to datetime objects if present
-                if 'start_time' in entities:
+                if 'start_time' in entities and isinstance(entities['start_time'], str) and entities['start_time']:
                     entities['start_time'] = datetime.fromisoformat(entities['start_time'])
-                if 'end_time' in entities:
+                if 'end_time' in entities and isinstance(entities['end_time'], str) and entities['end_time']:
                     entities['end_time'] = datetime.fromisoformat(entities['end_time'])
                 
                 return intent, entities
                 
-            except json.JSONDecodeError:
-                print("Error parsing Gemini response:", response.text)
-                return None, {}
+            except json.JSONDecodeError as e:
+                print(f"Error parsing Gemini response: {e}")
+                print("Cleaned response was:\n", cleaned)
+                intent, entities = None, {}
                 
         except Exception as e:
             print(f"Error processing command with Gemini: {str(e)}")
