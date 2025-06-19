@@ -1,6 +1,8 @@
 import os
 import google.generativeai as genai
 from datetime import datetime, timedelta
+import json
+import re
 
 class NLPProcessor:
     def __init__(self):
@@ -13,62 +15,77 @@ class NLPProcessor:
         self.model = genai.GenerativeModel('gemini-1.5-pro-latest')
         
         # System prompt to guide Gemini's responses
-        self.system_prompt = """You are an AI assistant that helps process calendar-related commands. 
-        For any given command, you should:
-        1. Determine the intent (create_event, read_events, update_event, delete_event)
-        2. Extract relevant entities (title, start_time, end_time, event_id)
-        3. Return the response in a structured format
-        
-        Example response format:
-        {
-            "intent": "create_event",
-            "entities": {
-                "title": "Team Meeting",
-                "start_time": "2024-03-20T10:00:00",
-                "end_time": "2024-03-20T11:00:00"
-            }
-        }
-        
-        If the command is unclear or cannot be processed, return:
-        {
-            "intent": null,
-            "entities": {}
-        }"""
+        self.system_prompt = """
+You are an intelligent calendar assistant. Your job is to extract structured information from user commands related to calendar events.
+
+For every input command, follow these steps:
+
+1. **Determine the intent**, which must be one of the following:
+   - "create_event"
+   - "read_events"
+   - "update_event"
+   - "delete_event"
+
+2. **Extract relevant entities** (if present), which can include:
+   - "title": The name or purpose of the event (e.g., "Doctor Appointment")
+   - "start_time": The event start time in **ISO 8601 format** (e.g., "2025-07-10T14:00:00Z")
+   - "end_time": The event end time in **ISO 8601 format** (e.g., "2025-07-10T15:00:00Z")
+   - "event_id": The unique ID of the event (used in update or delete)
+
+3. **ALWAYS return the output as a valid JSON object**, matching the following schema:
+
+Important: Always format dates and times in ISO format (YYYY-MM-DDTHH:MM:SS) and assume the current year if not specified.
+Example:
+{
+  "intent": "create_event",
+  "entities": {
+    "title": "Team Meeting",
+    "start_time": "2025-07-10T14:00:00",
+    "end_time": "2025-07-10T15:00:00"
+  }
+}
+
+If the command is ambiguous or unrecognizable, return:
+{
+  "intent": null,
+  "entities": {}
+}
+"""
     
     def process_command(self, command):
         """Process natural language command using Gemini and extract intent and entities"""
         try:
             # Create the prompt for Gemini
-            prompt = f"{self.system_prompt}\n\nUser command: {command}"
+            prompt = f"{self.system_prompt}\n\nUser command: {command}\n\nPlease respond with only the JSON structure, no additional text."
             
             # Get response from Gemini
             response = self.model.generate_content(prompt)
-            import json
-            import re
+            print(f"Gemini response: {response.text}")
 
-            # Clean Gemini's text response
-            cleaned = response.text.strip()
-
-            # Remove triple-backtick code block if present
-            if cleaned.startswith("```"):
-                cleaned = re.sub(r"^```[a-zA-Z]*\n?", "", cleaned)
-                cleaned = re.sub(r"```$", "", cleaned)
-                cleaned = cleaned.strip()
-
-            # Remove inline comments from JSON (// ...)
-            cleaned = re.sub(r'//.*', '', cleaned)
+            # Clean the response text - remove any markdown formatting
+            response_text = response.text.strip()
+            if response_text.startswith('```json'):
+                response_text = response_text[7:]
+            if response_text.endswith('```'):
+                response_text = response_text[:-3]
+            response_text = response_text.strip()
 
             # Now try parsing
             try:
-                result = json.loads(cleaned)
+                # Convert the response text to a dictionary
+                result = json.loads(response_text)
                 intent = result.get('intent')
                 entities = result.get('entities', {})
                 
-                # Convert string timestamps to datetime objects if present
+                def _parse_iso8601(dt_str):
+                    if dt_str.endswith('Z'):
+                        dt_str = dt_str[:-1] + '+00:00'
+                    return datetime.fromisoformat(dt_str)
+
                 if 'start_time' in entities and isinstance(entities['start_time'], str) and entities['start_time']:
-                    entities['start_time'] = datetime.fromisoformat(entities['start_time'])
+                    entities['start_time'] = _parse_iso8601(entities['start_time'])
                 if 'end_time' in entities and isinstance(entities['end_time'], str) and entities['end_time']:
-                    entities['end_time'] = datetime.fromisoformat(entities['end_time'])
+                    entities['end_time'] = _parse_iso8601(entities['end_time'])
                 
                 return intent, entities
                 
