@@ -125,10 +125,23 @@ Constraints:
 
         return intent, entities
 
-    def generate_response(self, action_result):
-        """Generate a natural language response for the user"""
+    def generate_response(self, action_result, intent=None, entities=None):
+        """Generate a natural language response for the user using Gemini"""
         try:
-            # Simple response generation based on the action result
+            # If intent and entities are provided, use them to generate a dynamic response
+            if intent and entities:
+                prompt = f"""
+You are an AI assistant. Write a friendly, concise, and natural-sounding confirmation message for a calendar action.
+
+Action result: {action_result}
+Intent: {intent}
+Entities: {json.dumps(entities)}
+
+If the action was to create an event, include the event title, date, and time in the response. If the action was to update or delete, mention the event and the action. If the action failed, provide a helpful error message. Do not include extra explanations or apologies unless there was an error.
+"""
+                response = self.model.generate_content(prompt)
+                return response.text.strip()
+            # Fallback to static responses if no details are available
             if "created" in action_result.lower():
                 return "Great! I've successfully created your event."
             elif "error" in action_result.lower():

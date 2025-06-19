@@ -5,6 +5,7 @@ from googleapiclient.discovery import build
 from datetime import datetime, timedelta
 import os.path
 import pickle
+from tzlocal import get_localzone
 
 class CalendarManager:
     SCOPES = ['https://www.googleapis.com/auth/calendar']
@@ -41,15 +42,16 @@ class CalendarManager:
             return "Invalid! input time: Start time must be before end time."
         
         try:
+            local_tz = get_localzone()
             event = {
                 'summary': entities.get('title', 'New Event'),
                 'start': {
                     'dateTime': entities.get('start_time'),
-                    'timeZone': 'UTC',
+                    'timeZone': str(local_tz),
                 },
                 'end': {
                     'dateTime': entities.get('end_time'),
-                    'timeZone': 'UTC',
+                    'timeZone': str(local_tz),
                 },
             }
             
