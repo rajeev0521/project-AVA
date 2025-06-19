@@ -1,80 +1,128 @@
-# AVA - Voice-Based AI Calendar Assistant
+# 🗓️ AVA – Voice-Based AI Calendar Assistant
 
-AVA is a voice-controlled AI assistant that helps manage your Google Calendar through natural language commands. It's designed to make calendar management more accessible and intuitive using voice interactions.
+**AVA** is a voice-activated AI assistant that helps you manage your Google Calendar using natural language. Designed for seamless interaction, AVA lets you schedule events, set reminders, and check your calendar – all hands-free.
 
-## Features
+---
 
-- Wake word detection ("Hey AVA")
-- Natural language processing for calendar operations
-- Google Calendar integration
-- Real-time voice processing
-- Google OAuth authentication
-- Docker containerization
+## ✨ Features
 
-## Prerequisites
+* 🗣️ Wake word detection: `"Hey AVA"`
+* 🧠 Natural Language Processing (NLP) for calendar tasks
+* 📅 Google Calendar API integration
+* 🔊 Real-time voice recognition
+* 🔐 Google OAuth 2.0 authentication
+* 🐳 Dockerized for easy deployment
+* 🤖 Gemini API for intelligent language understanding
 
-- Python 3.8 or higher
-- Google Cloud Platform account
-- Google Calendar API enabled
-- Docker (for containerized deployment)
+---
 
-## Setup
+## 🛠️ Prerequisites
 
-1. Clone the repository
-2. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-3. Set up Google Cloud credentials:
-   - Create a project in Google Cloud Console
-   - Enable Google Calendar API
-   - Download OAuth 2.0 credentials
-   - Save as `credentials.json` in the project root
+* Python 3.10(recommended)
+* Google Cloud Platform account
+* Google Calendar API enabled
+* Gemini API
+* Docker (optional, for containerization)
 
-4. Setup Gemini API
-   - Create a Gemini account
-   - Get your Gemini API key
+---
 
+## 🚀 Setup Instructions
 
-5. Create a `.env` file with your configuration:
-   ```
-   GOOGLE_APPLICATION_CREDENTIALS=credentials.json
-   GEMINI_API_KEY=GEMINI_API_KEY
-   PORCUPINE_ACCESS_KEY=PORCUPINE_ACCESS_KEY
-   ```
+### 1. Clone the Repository
 
-## Usage
+```bash
+git clone https://github.com/yourusername/ava-assistant.git
+cd ava-assistant
+```
+
+### 2. Install Python Dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+### 3. Google Cloud Setup
+
+* Create a project in **Google Cloud Console**
+* Enable the **Google Calendar API**
+* Set up **OAuth 2.0 Client ID** credentials
+* Download the credentials file and save it as:
+
+```bash
+credentials.json
+```
+
+### 4. Gemini API Setup
+
+* Create an account at [Gemini API](https://ai.google.dev/)
+* Generate your API key
+
+### 5. Create `.env` Configuration File
+
+```env
+GOOGLE_APPLICATION_CREDENTIALS=credentials.json
+GEMINI_API_KEY=your_gemini_api_key
+PORCUPINE_ACCESS_KEY=your_porcupine_access_key
+```
+
+---
+
+## ▶️ How to Use
 
 1. Run the application:
-   ```bash
-   python main.py
-   ```
 
-2. Say "Hey AVA" to activate the assistant
-3. Speak your calendar command, for example:
-   - "Schedule a meeting tomorrow at 2 PM"
-   - "What's on my calendar for next week?"
-   - "Add a reminder for my birthday"
+```bash
+python main.py
+```
 
-## Project Structure
+2. Say **"Hey AVA"** to activate the assistant
+
+3. Give a command, such as:
+
+* `"Schedule a meeting for tomorrow at 2 PM"`
+* `"What's on my calendar for next week?"`
+* `"Add a reminder for my birthday"`
+
+---
+
+## 📁 Project Structure
 
 ```
 ava/
-├── main.py              # Main application entry point
-├── voice_processor.py   # Voice processing and wake word detection
-├── calendar_manager.py  # Google Calendar integration
-├── nlp_processor.py     # Natural language processing
-├── auth_manager.py      # Google OAuth authentication
+├── main.py              # Application entry point
+├── voice_processor.py   # Handles wake word & voice input
+├── calendar_manager.py  # Google Calendar event logic
+├── nlp_processor.py     # NLP & command parsing (Gemini API)
+├── auth_manager.py      # Google OAuth 2.0 authentication
 ```
 
-## Docker Deployment
+---
 
-Build and run with Docker:
+## 🐳 Docker Deployment
+
+1. Build the Docker image:
+
 ```bash
 docker build -t ava-assistant .
+```
+
+2. Run the container:
+
+```bash
 docker run -it ava-assistant
 ```
 
-## Contributing
+---
 
-Feel free to submit issues and enhancement requests!
+## 🤝 Contributing
+
+We welcome all contributions!
+
+* Found a bug? Open an [issue](https://github.com/yourusername/ava-assistant/issues)
+* Want to add a feature? Submit a [pull request](https://github.com/yourusername/ava-assistant/pulls)
+
+---
+
+## 📄 License
+
+This project is licensed under the [MIT License](LICENSE).
