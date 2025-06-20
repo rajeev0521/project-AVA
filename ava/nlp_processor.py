@@ -8,7 +8,7 @@ from tzlocal import get_localzone
 import pytz
 
 class NLPProcessor:
-    def __init__(self):
+    def __init__(self, user_name=None, language=None, tone=None):
         # Configure Gemini API
         load_dotenv()
         api_key = os.getenv('GEMINI_API_KEY')
@@ -19,6 +19,10 @@ class NLPProcessor:
         
         # Get local timezone
         self.local_tz = get_localzone()
+        # Load user config from environment variables, with defaults
+        self.user_name = user_name or os.getenv("AVA_USER_NAME", "sir")
+        self.language = language or os.getenv("AVA_LANGUAGE", "English")
+        self.tone = tone or os.getenv("AVA_TONE", "formal")
 
         # System prompt to guide Gemini's responses
         self.system_prompt = f"""
@@ -230,7 +234,6 @@ The response must be **valid JSON only** without explanations or extra text
     def generate_response(self, action_result, intent=None, entities=None):
         """Generate a natural language response for the user using Gemini"""
         try:
-            # If intent and entities are provided, use them to generate a dynamic response
             if intent and entities:
                 # Format times for display
                 display_entities = entities.copy()
@@ -241,9 +244,9 @@ The response must be **valid JSON only** without explanations or extra text
                             display_entities[time_key] = dt.strftime('%B %d, %Y at %I:%M %p')
                         except:
                             pass
-                
+
                 prompt = f"""
-You are an AI assistant. Write a friendly, concise, and natural-sounding confirmation message for a calendar action.
+You are an AI assistant. Always start your response with a polite greeting using the user's name: '{self.user_name}'. Vary your phrasing for confirmations and use a {self.tone} tone. Respond in {self.language}.
 
 Action result: {action_result}
 Intent: {intent}
@@ -253,18 +256,17 @@ If the action was to create an event, include the event title, date, and time in
 """
                 response = self.model.generate_content(prompt)
                 return response.text.strip()
-            
             # Fallback to static responses if no details are available
             if "created" in action_result.lower():
-                return "Great! I've successfully created your event."
+                return f"Okay {self.user_name}, I've successfully created your event."
             elif "error" in action_result.lower():
-                return "I'm sorry, there was an issue with your request. Please try again with a different time or date."
+                return f"Okay {self.user_name}, there was an issue with your request. Please try again with a different time or date."
             elif "updated" in action_result.lower():
-                return "Perfect! I've updated your event."
+                return f"Okay {self.user_name}, I've updated your event."
             elif "deleted" in action_result.lower():
-                return "Done! I've deleted the event."
+                return f"Okay {self.user_name}, I've deleted the event."
             elif "no upcoming events" in action_result.lower():
-                return "You don't have any upcoming events."
+                return f"Okay {self.user_name}, you don't have any upcoming events."
             else:
                 return action_result
         except Exception as e:
