@@ -3,10 +3,12 @@ import google.generativeai as genai
 from datetime import datetime, timedelta
 import json
 import re
+from dotenv import load_dotenv
 
 class NLPProcessor:
     def __init__(self):
         # Configure Gemini API
+        load_dotenv()
         api_key = os.getenv('GEMINI_API_KEY')
         if not api_key:
             raise ValueError("GEMINI_API_KEY not found in environment variables")
