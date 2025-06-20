@@ -58,8 +58,7 @@ class VoiceProcessor:
         print("Listening for command...")
         with sr.Microphone() as source:
             self.recognizer.adjust_for_ambient_noise(source)
-            audio = self.recognizer.listen(source, timeout=10, phrase_time_limit=10)
-            
+            audio = self.recognizer.listen(source, timeout=10)
             try:
                 text = self.recognizer.recognize_google(audio)
                 return text
