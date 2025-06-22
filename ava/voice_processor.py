@@ -8,6 +8,7 @@ import whisper
 import pvporcupine
 import pyaudio
 from dotenv import load_dotenv
+from ava import Speech_manager
 
 class VoiceProcessor:
     def __init__(self):
@@ -70,7 +71,6 @@ class VoiceProcessor:
                 return None
     
     def speak(self, text):
-        """Convert text to speech (placeholder for text-to-speech implementation)"""
+        """Convert text to speech using Speech_manager"""
         print(f"AVA: {text}")
-        # TODO: Implement text-to-speech functionality
-        # For now, we'll just print the response 
+        Speech_manager.speak(text) 

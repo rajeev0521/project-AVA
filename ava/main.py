@@ -1,10 +1,10 @@
 import os
 import time
 from dotenv import load_dotenv
-from voice_processor import VoiceProcessor
-from calendar_manager import CalendarManager
-from nlp_processor import NLPProcessor
-from auth_manager import AuthManager
+from ava.voice_processor import VoiceProcessor
+from ava.calendar_manager import CalendarManager
+from ava.nlp_processor import NLPProcessor
+from ava.auth_manager import AuthManager
 import speech_recognition as sr
 
 class AVASession:
