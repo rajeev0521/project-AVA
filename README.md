@@ -94,6 +94,7 @@ ava/
 ├── calendar_manager.py  # Google Calendar event logic
 ├── nlp_processor.py     # NLP & command parsing (Gemini API)
 ├── auth_manager.py      # Google OAuth 2.0 authentication
+└── Speech_manager.py    # Speech synthesis with Piper TTS
 ```
 
 ---
@@ -126,3 +127,30 @@ We welcome all contributions!
 ## 📄 License
 
 This project is licensed under the [MIT License](LICENSE).
+
+## Speech Output with Piper TTS
+
+The `ava/Speech_manager.py` module enables AVA to speak responses aloud using neural text-to-speech (TTS).
+
+### How it works
+- Uses [Piper TTS](https://github.com/rhasspy/piper) for fast, high-quality, offline speech synthesis.
+- By default, it looks for a Piper voice model file (e.g., `en_US-amy-low.onnx`) in the project directory.
+- When AVA generates a response, `Speech_manager.py` synthesizes the text and plays the audio automatically.
+
+### Setup Instructions
+1. **Install dependencies**
+   ```sh
+   pip install -r requirements.txt
+   ```
+2. **Download a Piper voice model**
+   - Visit the [Piper voices repository](https://github.com/rhasspy/piper-voices).
+   - Download a suitable `.onnx` model (e.g., `en_US-amy-low.onnx` for an English female voice).
+   - Place the model file in your project directory.
+   - By default, `Speech_manager.py` expects the file to be named `en_US-amy-low.onnx`. You can change the filename in the code if you use a different model.
+
+3. **Run AVA**
+   - AVA will now speak all responses aloud using the selected Piper TTS voice.
+
+### Troubleshooting
+- If you see an error about the Piper model not being found, make sure you have downloaded the `.onnx` file and placed it in the correct location.
+- If you have audio playback issues, ensure your system audio is working and the `sounddevice` package is installed.
