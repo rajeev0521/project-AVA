@@ -1,22 +1,22 @@
-# 🗓️ AVA – Voice-Based AI Calendar Assistant
+# AVA – Voice-Based AI Calendar Assistant
 
 **AVA** is a voice-activated AI assistant that helps you manage your Google Calendar using natural language. Designed for seamless interaction, AVA lets you schedule events, set reminders, and check your calendar – all hands-free.
 
 ---
 
-## ✨ Features
+## Features
 
-* 🗣️ Wake word detection: `"Hey AVA"`
-* 🧠 Natural Language Processing (NLP) for calendar tasks
-* 📅 Google Calendar API integration
-* 🔊 Real-time voice recognition
-* 🔐 Google OAuth 2.0 authentication
-* 🐳 Dockerized for easy deployment
-* 🤖 Gemini API for intelligent language understanding
+* Wake word detection: `"Hey AVA"`
+* Natural Language Processing (NLP) for calendar tasks
+* Google Calendar API integration
+* Real-time voice recognition
+* Google OAuth 2.0 authentication
+* Dockerized for easy deployment
+* Gemini API for intelligent language understanding
 
 ---
 
-## 🛠️ Prerequisites
+## Prerequisites
 
 * Python 3.10(recommended)
 * Google Cloud Platform account
@@ -26,13 +26,12 @@
 
 ---
 
-## 🚀 Setup Instructions
+##  Setup Instructions
 
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/yourusername/ava-assistant.git
-cd ava-assistant
+git clone https://github.com/rajeev0521/project-AVA.git
 ```
 
 ### 2. Install Python Dependencies
@@ -67,7 +66,7 @@ PORCUPINE_ACCESS_KEY=your_porcupine_access_key
 
 ---
 
-## ▶️ How to Use
+##  How to Use
 
 1. Run the application:
 
@@ -85,7 +84,7 @@ python main.py
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 ava/
@@ -99,7 +98,7 @@ ava/
 
 ---
 
-## 🐳 Docker Deployment
+##  Docker Deployment
 
 1. Build the Docker image:
 
@@ -115,7 +114,7 @@ docker run -it ava-assistant
 
 ---
 
-## 🤝 Contributing
+##  Contributing
 
 We welcome all contributions!
 
@@ -124,7 +123,7 @@ We welcome all contributions!
 
 ---
 
-## 📄 License
+##  License
 
 This project is licensed under the [MIT License](LICENSE).
 
