@@ -11,6 +11,10 @@ import pytz
 from typing import Dict, List, Optional, Any
 import re
 
+from logger import get_logger
+
+logger = get_logger(__name__)
+
 class CalendarManager:
     SCOPES = ['https://www.googleapis.com/auth/calendar']
     
@@ -59,7 +63,7 @@ class CalendarManager:
                     dt = self.local_tz.localize(dt)
                 return dt
         except (ValueError, TypeError) as e:
-            print(f"Error parsing datetime '{datetime_str}': {e}")
+            logger.warning(f"Error parsing datetime '{datetime_str}': {e}")
             return None
     
     def _format_datetime_for_api(self, dt: datetime) -> str:
@@ -489,7 +493,7 @@ class CalendarManager:
             return matching_events
             
         except Exception as e:
-            print(f"Error finding events: {e}")
+            logger.error(f"Error finding events: {e}")
             return []
     
     def _find_event_by_title_and_date(self, title: str, date_str: str = None, fallback_date: str = None) -> Optional[str]:

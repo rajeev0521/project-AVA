@@ -1,39 +1,33 @@
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from google.auth.transport.requests import Request
-import os.path
-import pickle
+import os
+from google.oauth2 import service_account
+from logger import get_logger
+
+logger = get_logger(__name__)
+
 
 class AuthManager:
     SCOPES = ['https://www.googleapis.com/auth/calendar']
     
     def __init__(self):
-        self.creds = None
-        self.token_path = 'C:\\Users\\rajee\\OneDrive\\Desktop\\AVA demo\\token.pickle'
-        self.credentials_path = 'C:\\Users\\rajee\\OneDrive\\Desktop\\AVA demo\\credentials.json'
+        self._creds = None
+        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+        cred_file = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "service_account.json")
+        self.credentials_path = os.path.join(project_root, cred_file)
     
     def get_credentials(self):
-        """Get valid user credentials from storage or OAuth flow"""
-        if os.path.exists(self.token_path):
-            with open(self.token_path, 'rb') as token:
-                self.creds = pickle.load(token)
+        """Get valid service account credentials. Cached after first load."""
+        # Return cached credentials if valid
+        if self._creds is not None and self._creds.valid:
+            return self._creds
         
-        # If credentials are not valid or don't exist, let the user log in
-        if not self.creds or not self.creds.valid:
-            if self.creds and self.creds.expired and self.creds.refresh_token:
-                self.creds.refresh(Request())
-            else:
-                if not os.path.exists(self.credentials_path):
-                    raise FileNotFoundError(
-                        "credentials.json not found. Please download it from Google Cloud Console"
-                    )
-                
-                flow = InstalledAppFlow.from_client_secrets_file(
-                    self.credentials_path, self.SCOPES)
-                self.creds = flow.run_local_server(port=8080)
-            
-            # Save the credentials for the next run
-            with open(self.token_path, 'wb') as token:
-                pickle.dump(self.creds, token)
+        if not os.path.exists(self.credentials_path):
+            raise FileNotFoundError(
+                f"Service account key not found at {self.credentials_path}. "
+                "Please download it from Google Cloud Console."
+            )
         
-        return self.creds 
+        self._creds = service_account.Credentials.from_service_account_file(
+            self.credentials_path, scopes=self.SCOPES)
+        
+        logger.info("Service account credentials loaded and cached")
+        return self._creds
