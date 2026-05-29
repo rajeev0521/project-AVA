@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="AVA — Voice-activated AI Calendar Assistant. Manage your Google Calendar with natural language commands.">
+    <title>AVA — AI Calendar Assistant</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div id="app" class="app">
+        <!-- Background Effects -->
+        <div class="bg-effects">
+            <div class="orb orb-1"></div>
+            <div class="orb orb-2"></div>
+            <div class="orb orb-3"></div>
+        </div>
+
+        <!-- Header -->
+        <header class="header">
+            <div class="header-left">
+                <div class="logo">
+                    <div class="logo-icon" id="statusIndicator">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                            <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/>
+                            <path d="M12 6v6l4 2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                        </svg>
+                    </div>
+                    <h1 class="logo-text">AVA</h1>
+                </div>
+                <span class="header-subtitle">AI Calendar Assistant</span>
+            </div>
+            <div class="header-right">
+                <div class="status-badge" id="connectionStatus">
+                    <span class="status-dot"></span>
+                    <span class="status-text">Connected</span>
+                </div>
+                <div class="api-counter" id="apiCounter" title="Daily API requests remaining">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                        <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    <span id="apiRemaining">--</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main">
+            <!-- Conversation Area -->
+            <div class="conversation" id="conversation">
+                <div class="welcome-message" id="welcomeMessage">
+                    <div class="welcome-icon">
+                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none">
+                            <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.5"/>
+                            <path d="M12 6v6l4 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                        </svg>
+                    </div>
+                    <h2>Hi! I'm AVA</h2>
+                    <p>Your AI-powered calendar assistant. Speak or type to manage your schedule.</p>
+                    <div class="quick-actions">
+                        <button class="quick-action" onclick="sendQuickCommand('What\'s on my calendar today?')">
+                            📅 Today's schedule
+                        </button>
+                        <button class="quick-action" onclick="sendQuickCommand('Schedule a meeting tomorrow at 2pm')">
+                            ➕ New meeting
+                        </button>
+                        <button class="quick-action" onclick="sendQuickCommand('Am I free at 3pm?')">
+                            🕐 Check availability
+                        </button>
+                        <button class="quick-action" onclick="sendQuickCommand('Show my events this week')">
+                            📋 This week
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Input Area -->
+            <div class="input-area">
+                <div class="input-container">
+                    <div class="input-wrapper">
+                        <input 
+                            type="text" 
+                            id="commandInput" 
+                            class="command-input" 
+                            placeholder="Type a command or click the mic..."
+                            autocomplete="off"
+                        >
+                        <div class="input-actions">
+                            <button class="btn-icon btn-mic" id="micButton" onclick="toggleVoice()" title="Voice input (Web Speech API)">
+                                <svg id="micIcon" width="20" height="20" viewBox="0 0 24 24" fill="none">
+                                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" stroke="currentColor" stroke-width="2"/>
+                                    <path d="M19 10v2a7 7 0 0 1-14 0v-2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                    <line x1="12" y1="19" x2="12" y2="23" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                    <line x1="8" y1="23" x2="16" y2="23" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                </svg>
+                                <svg id="micActiveIcon" class="hidden" width="20" height="20" viewBox="0 0 24 24" fill="none">
+                                    <circle cx="12" cy="12" r="10" fill="var(--color-danger)" opacity="0.2"/>
+                                    <circle cx="12" cy="12" r="4" fill="var(--color-danger)"/>
+                                </svg>
+                            </button>
+                            <button class="btn-icon btn-send" id="sendButton" onclick="sendCommand()" title="Send command">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                                    <line x1="22" y1="2" x2="11" y2="13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                    <polygon points="22 2 15 22 11 13 2 9 22 2" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="input-hint">
+                        Press <kbd>Enter</kbd> to send · <kbd>Ctrl+M</kbd> for mic · Supports English & Hindi
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
