@@ -1,6 +1,8 @@
 # Credentials and secrets
 credentials.json
 token.pickle
+service_account.json
+.env
 
 # Python
 __pycache__/
@@ -35,9 +37,11 @@ ENV/
 *.swo
 
 # API Keys and Configurations
-.env
 hey-ava_en_windows_v3_0_0
+
+# Logs
+logs/
 
 # OS
 .DS_Store
-Thumbs.db 
+Thumbs.db
