@@ -6,6 +6,7 @@ credential refresh, and per-user Calendar API service construction.
 
 import os
 import json
+from typing import Optional, Dict, Any
 from google_auth_oauthlib.flow import Flow
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
