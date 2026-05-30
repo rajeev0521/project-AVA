@@ -74,6 +74,26 @@ CREATE POLICY "Users can manage own entity context" ON entity_context
     WITH CHECK (true);
 
 -- ══════════════════════════════════════════════════════════════════
+-- User Tokens Table — OAuth credential storage per user
+-- ══════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS user_tokens (
+    user_id TEXT PRIMARY KEY,
+    token TEXT,
+    refresh_token TEXT,
+    token_uri TEXT,
+    client_id TEXT,
+    client_secret TEXT,
+    scopes TEXT[],
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- RLS: Only the service role can read/write tokens (never the frontend anon key)
+ALTER TABLE user_tokens ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "service role only" ON user_tokens
+    FOR ALL
+    USING (true);
+
+-- ══════════════════════════════════════════════════════════════════
 -- Auto-cleanup: Delete conversations older than 30 days
 -- (Run this as a Supabase Edge Function or cron job)
 -- ══════════════════════════════════════════════════════════════════
