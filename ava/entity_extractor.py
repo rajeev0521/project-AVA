@@ -46,8 +46,6 @@ class EntityExtractor:
         'seminar': 'Seminar',
         'birthday': 'Birthday',
         'reminder': 'Reminder',
-        # Hindi
-        'meeting': 'Meeting',
     }
     
     # Relative day patterns
