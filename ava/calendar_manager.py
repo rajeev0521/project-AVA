@@ -38,27 +38,36 @@ class CalendarManager:
         except Exception as e:
             return f"Unexpected error occurred: {str(e)}"
     
-    def _validate_datetime(self, datetime_str: str) -> Optional[datetime]:
-        """Validate and parse datetime string"""
+    def _validate_datetime(self, datetime_str) -> Optional[datetime]:
+        """Validate and parse datetime string or datetime object.
+        
+        Raises ValueError on parse failure instead of returning None,
+        so callers can surface meaningful error messages to the user.
+        """
         if not datetime_str:
             return None
         
         try:
-            # Handle different datetime formats
+            # Accept datetime objects directly
+            if isinstance(datetime_str, datetime):
+                if datetime_str.tzinfo is None:
+                    return self.local_tz.localize(datetime_str)
+                return datetime_str.astimezone(self.local_tz)
+            
+            # Handle different string formats
             if datetime_str.endswith('Z'):
                 # UTC format
                 dt = datetime.fromisoformat(datetime_str.replace('Z', '+00:00'))
-                return dt.astimezone(self.local_tz)
             else:
-                # ISO format with timezone
+                # ISO format with or without timezone
                 dt = datetime.fromisoformat(datetime_str)
-                if dt.tzinfo is None:
-                    # Naive datetime - assume local timezone
-                    dt = self.local_tz.localize(dt)
-                return dt
+            
+            if dt.tzinfo is None:
+                dt = self.local_tz.localize(dt)
+            return dt.astimezone(self.local_tz)
         except (ValueError, TypeError) as e:
-            logger.warning(f"Error parsing datetime '{datetime_str}': {e}")
-            return None
+            logger.error(f"_validate_datetime failed for '{datetime_str}': {e}")
+            raise ValueError(f"Cannot parse datetime: '{datetime_str}'") from e
     
     def _format_datetime_for_api(self, dt: datetime) -> str:
         """Format datetime for Google Calendar API"""
@@ -66,15 +75,15 @@ class CalendarManager:
             dt = self.local_tz.localize(dt)
         return dt.isoformat()
     
-    def _format_datetime_for_display(self, datetime_str: str) -> str:
+    def _format_datetime_for_display(self, datetime_str) -> str:
         """Format datetime string for user-friendly display"""
         try:
             dt = self._validate_datetime(datetime_str)
             if dt:
                 return dt.strftime('%A, %B %d, %Y at %I:%M %p')
-            return datetime_str
-        except:
-            return datetime_str
+            return str(datetime_str)
+        except (ValueError, TypeError):
+            return str(datetime_str)
     
     def create_event(self, entities: Dict[str, Any]) -> str:
         """Create a new calendar event with comprehensive validation"""
@@ -171,7 +180,10 @@ class CalendarManager:
                 end_time = (now + timedelta(days=7)).isoformat()
             elif start_time and not end_time:
                 # If only start time given, show events for that day
-                start_dt = self._validate_datetime(start_time)
+                try:
+                    start_dt = self._validate_datetime(start_time)
+                except ValueError as e:
+                    return f"I couldn't understand that date range: {e}"
                 if start_dt:
                     end_dt = start_dt.replace(hour=23, minute=59, second=59)
                     start_time = self._format_datetime_for_api(start_dt)
@@ -518,7 +530,7 @@ class CalendarManager:
         except:
             return None
     
-    def _get_time_range_description(self, start_time: str, end_time: str) -> str:
+    def _get_time_range_description(self, start_time, end_time) -> str:
         """Get human-readable description of time range"""
         try:
             start_dt = self._validate_datetime(start_time)
@@ -534,5 +546,5 @@ class CalendarManager:
                     return f"from {start_str} to {end_str}"
             
             return "in the specified time range"
-        except:
+        except (ValueError, TypeError):
             return "in the specified time range" 
