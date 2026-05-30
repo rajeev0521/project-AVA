@@ -292,8 +292,88 @@ class EntityExtractor:
         return None, None
     
     def _extract_date_range(self, command: str) -> Tuple[Optional[datetime], Optional[datetime]]:
-        """Extract a date range for read_events queries."""
+        """Extract a date range for read_events queries.
+        
+        Handles past, present, and future temporal expressions including:
+        - yesterday, last week, last month, last N days, past week
+        - today, this week, this month, weekend
+        - tomorrow, next week
+        - explicit date ranges (between X and Y, from X to Y)
+        """
         now = datetime.now(self.local_tz)
+        
+        # ── Past-oriented expressions (checked first) ──────────────
+        
+        # "yesterday" / "kal beet gaya" / "kal ka"
+        if any(p in command for p in ['yesterday', 'kal beet gaya', 'kal ka', 'kal ke']):
+            yesterday = now - timedelta(days=1)
+            start = yesterday.replace(hour=0, minute=0, second=0, microsecond=0)
+            end = yesterday.replace(hour=23, minute=59, second=59)
+            return start, end
+        
+        # "last N days" e.g. "last 3 days", "last 30 days"
+        match = re.search(r'last\s+(\d+)\s+days?', command)
+        if match:
+            n = int(match.group(1))
+            end = now
+            start = (now - timedelta(days=n)).replace(hour=0, minute=0, second=0, microsecond=0)
+            return start, end
+        
+        # "last week" / "pichle hafte" / "pichla hafta" / "past week"
+        if any(p in command for p in ['last week', 'pichle hafte', 'pichla hafta', 'past week']):
+            days_since_monday = now.weekday()
+            # Start of previous week (Monday)
+            start = (now - timedelta(days=days_since_monday + 7)).replace(hour=0, minute=0, second=0, microsecond=0)
+            end = (start + timedelta(days=6)).replace(hour=23, minute=59, second=59)
+            return start, end
+        
+        # "last month" / "pichle mahine"
+        if any(p in command for p in ['last month', 'pichle mahine', 'pichla mahina']):
+            first_of_this_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            end = (first_of_this_month - timedelta(seconds=1))
+            start = end.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            return start, end
+        
+        # ── Explicit date ranges (between X and Y, from X to Y) ────
+        
+        date_patterns = [
+            # American Style: Month Day, Year / Month Day
+            r'((?:january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s+\d{1,2}(?:st|nd|rd|th)?(?:\s*,\s*|\s+)\d{4})',
+            r'((?:january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s+\d{1,2}(?:st|nd|rd|th)?)',
+            # British/European Style: Day Month Year / Day Month
+            r'(\d{1,2}(?:st|nd|rd|th)?\s+(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{4})',
+            r'(\d{1,2}(?:st|nd|rd|th)?\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s+\d{4})',
+            r'(\d{1,2}(?:st|nd|rd|th)?\s+(?:january|february|march|april|may|june|july|august|september|october|november|december))',
+            r'(\d{1,2}(?:st|nd|rd|th)?\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec))',
+            # Numeric formats
+            r'(\d{1,2}/\d{1,2}/\d{2,4})',
+            r'(\d{4}-\d{2}-\d{2})',
+        ]
+        
+        combined_pattern = '|'.join(date_patterns)
+        matches = re.finditer(combined_pattern, command, re.IGNORECASE)
+        dates_found = []
+        for m in matches:
+            date_str = m.group(0)
+            try:
+                parsed = dateutil_parser.parse(date_str, default=now)
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=self.local_tz)
+                dates_found.append(parsed)
+            except (ValueError, TypeError):
+                continue
+        
+        if len(dates_found) >= 2:
+            dates_found.sort()
+            start = dates_found[0].replace(hour=0, minute=0, second=0, microsecond=0)
+            end = dates_found[-1].replace(hour=23, minute=59, second=59)
+            return start, end
+        elif len(dates_found) == 1:
+            start = dates_found[0].replace(hour=0, minute=0, second=0, microsecond=0)
+            end = dates_found[0].replace(hour=23, minute=59, second=59)
+            return start, end
+        
+        # ── Present / future relative expressions ──────────────────
         
         # "this week" / "is hafte"
         if 'this week' in command or 'is hafte' in command or 'is week' in command:
@@ -316,8 +396,8 @@ class EntityExtractor:
             end = now.replace(hour=23, minute=59, second=59)
             return start, end
         
-        # "tomorrow" / "kal"
-        if 'tomorrow' in command or 'kal' in command:
+        # "tomorrow" / "kal" (only when not caught by yesterday patterns above)
+        if 'tomorrow' in command or ('kal' in command and 'beet' not in command):
             tomorrow = now + timedelta(days=1)
             start = tomorrow.replace(hour=0, minute=0, second=0, microsecond=0)
             end = tomorrow.replace(hour=23, minute=59, second=59)
@@ -343,3 +423,4 @@ class EntityExtractor:
         start = now
         end = now + timedelta(days=7)
         return start, end
+
