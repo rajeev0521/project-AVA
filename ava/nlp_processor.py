@@ -476,6 +476,9 @@ class NLPProcessor:
         Uses the response_template from the initial LLM call when available,
         avoiding a second API call entirely. Falls back to static templates.
         
+        IMPORTANT: Never prepends a positive template (e.g. "Here are your
+        upcoming events") when the action_result signals empty results or errors.
+        
         Args:
             action_result: The result string from the calendar action
             intent: The detected intent
@@ -486,8 +489,16 @@ class NLPProcessor:
             Natural language response string
         """
         try:
-            # If we have a response template from the LLM, use it (no API call needed)
-            if response_template and "error" not in action_result.lower():
+            # Detect empty results or error conditions in action_result
+            result_lower = action_result.lower()
+            no_events_or_error = any(p in result_lower for p in [
+                "no events found", "no upcoming events", "couldn't find",
+                "error", "warning", "failed", "couldn't understand",
+                "no events", "could not identify",
+            ])
+            
+            # If we have a response template AND result is positive, use the template
+            if response_template and not no_events_or_error:
                 # Personalize the template
                 response = response_template.replace("{user_name}", self.user_name)
                 logger.info("Using pre-generated response template (no API call)")
@@ -495,7 +506,12 @@ class NLPProcessor:
                     return f"{response}\n\n{action_result}"
                 return response
             
-            # For errors or missing template, use local generation
+            # For empty results or errors, return action_result directly
+            # to avoid contradictory messages like "Here are your events" + "No events found"
+            if intent == "read_events" or no_events_or_error:
+                return action_result
+            
+            # For other cases, use local generation
             return self._local_generate_response(action_result, intent, entities)
             
         except Exception as e:
