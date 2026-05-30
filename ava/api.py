@@ -139,7 +139,10 @@ async def auth_login(request: Request):
     state = os.urandom(16).hex()
     request.session["oauth_state"] = state
     
-    auth_url = global_auth_manager.get_authorization_url(state)
+    auth_url, code_verifier = global_auth_manager.get_authorization_url(state)
+    if code_verifier:
+        request.session["code_verifier"] = code_verifier
+        
     return RedirectResponse(url=auth_url)
 
 
@@ -157,8 +160,10 @@ async def auth_callback(request: Request, code: str = None, state: str = None, e
         raise HTTPException(status_code=400, detail="State mismatch. CSRF attempt?")
         
     try:
+        code_verifier = request.session.get("code_verifier")
+        
         # Exchange code for credentials
-        creds = global_auth_manager.exchange_code(code)
+        creds = global_auth_manager.exchange_code(code, code_verifier=code_verifier)
         
         # Fetch user info from Google
         user_info = global_auth_manager.get_user_info(creds)

@@ -66,15 +66,15 @@ class AuthManager:
             }
         }
 
-    def get_authorization_url(self, state: str) -> str:
+    def get_authorization_url(self, state: str) -> tuple[str, str]:
         """
-        Generate the Google OAuth consent screen URL.
+        Generate the Google OAuth consent screen URL and PKCE code verifier.
 
         Args:
             state: A CSRF-protection state token.
 
         Returns:
-            The authorization URL to redirect the user to.
+            A tuple of (authorization_url, code_verifier).
         """
         flow = Flow.from_client_config(
             self._client_config(),
@@ -87,14 +87,15 @@ class AuthManager:
             state=state,
             prompt="consent",
         )
-        return url
+        return url, getattr(flow, 'code_verifier', None)
 
-    def exchange_code(self, code: str) -> Credentials:
+    def exchange_code(self, code: str, code_verifier: str = None) -> Credentials:
         """
         Exchange an authorization code for OAuth credentials.
 
         Args:
             code: The authorization code from Google's callback.
+            code_verifier: The PKCE code verifier generated during auth URL creation.
 
         Returns:
             The obtained Credentials object.
@@ -104,6 +105,9 @@ class AuthManager:
             scopes=SCOPES,
             redirect_uri=self.redirect_uri,
         )
+        if code_verifier:
+            flow.code_verifier = code_verifier
+            
         flow.fetch_token(code=code)
         creds = flow.credentials
         return creds
