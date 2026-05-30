@@ -15,15 +15,25 @@ class CalendarManager:
     def __init__(self, auth_manager, user_id: str = "default"):
         self.auth_manager = auth_manager
         self.user_id = user_id
-        self.service = self._get_calendar_service()
         self.local_tz = get_localzone()
     
     def _get_calendar_service(self):
         """Get Google Calendar service for the current user."""
-        return self.auth_manager.get_calendar_service(self.user_id)
+        try:
+            return self.auth_manager.get_calendar_service(self.user_id)
+        except ValueError as e:
+            logger.warning(f"Failed to get calendar service: {e}")
+            return None
     
     def execute_command(self, intent: str, entities: Dict[str, Any]) -> str:
         """Execute calendar operation based on intent and entities"""
+        service = self._get_calendar_service()
+        if not service:
+            return "Please sign in with Google using the button above before managing your calendar."
+            
+        # Bind the service to self for the duration of the execution
+        self.service = service
+        
         try:
             if intent == "create_event":
                 return self.create_event(entities)

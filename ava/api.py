@@ -50,7 +50,9 @@ app.add_middleware(
 
 app.add_middleware(
     SessionMiddleware,
-    secret_key=os.getenv("SESSION_SECRET_KEY", "fallback-secret-key-for-dev")
+    secret_key=os.getenv("SESSION_SECRET_KEY", "fallback-secret-key-for-dev"),
+    same_site="lax",
+    https_only=False
 )
 
 # ── Global State ───────────────────────────────────────────────────
@@ -151,6 +153,7 @@ async def auth_callback(request: Request, code: str = None, state: str = None, e
         
     session_state = request.session.get("oauth_state")
     if state != session_state:
+        logger.warning(f"OAuth state mismatch. Expected {session_state}, got {state}. Session cookies might be missing.")
         raise HTTPException(status_code=400, detail="State mismatch. CSRF attempt?")
         
     try:
