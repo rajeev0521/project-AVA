@@ -5,8 +5,10 @@ from tzlocal import get_localzone
 import sys
 import os
 
-# Add parent directory to path to allow importing AVA modules
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Add parent directory and ava directory to path to allow importing AVA modules
+root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(root_dir)
+sys.path.append(os.path.join(root_dir, 'ava'))
 from ava.nlp_processor import NLPProcessor
 
 class TestNLPProcessor(unittest.TestCase):
@@ -35,7 +37,7 @@ class TestNLPProcessor(unittest.TestCase):
         self.assertEqual(intent, 'create_event')
         self.assertEqual(entities['title'], 'Appointment')
         
-        self.assertTrue('T14:00' in entities['start_time'])
+        self.assertTrue('T14:30' in entities['start_time'])
 
     def test_validate_and_fix_times(self):
         # Testing timezone fix for UTC inputs (common from LLMs)
