@@ -41,18 +41,19 @@ class AuthManager:
 
     def __init__(self, token_store):
         """
-        Initialize AuthManager.
+        Initialize the OAuth manager.
 
         Args:
-            token_store: A SupabaseTokenStore (or any object with save/load methods)
-                         for persisting per-user OAuth credentials.
+            token_store: An object implementing save(user_id, dict) and load(user_id) -> dict.
         """
         self.token_store = token_store
-        self.client_id = os.environ["GOOGLE_CLIENT_ID"]
-        self.client_secret = os.environ["GOOGLE_CLIENT_SECRET"]
-        self.redirect_uri = os.environ.get(
-            "GOOGLE_REDIRECT_URI", "http://localhost:8000/auth/callback"
-        )
+        
+        self.client_id = os.getenv('GOOGLE_CLIENT_ID')
+        self.client_secret = os.getenv('GOOGLE_CLIENT_SECRET')
+        self.redirect_uri = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/auth/callback")
+        
+        if not self.client_id or not self.client_secret:
+            logger.warning("GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET missing. OAuth will fail if invoked.")
 
     def _client_config(self) -> dict:
         """Build the client config dict for OAuth flow."""
