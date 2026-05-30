@@ -1,11 +1,6 @@
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from datetime import datetime, timedelta
-import os.path
-import pickle
 from tzlocal import get_localzone
 import pytz
 from typing import Dict, List, Optional, Any
@@ -16,17 +11,16 @@ from logger import get_logger
 logger = get_logger(__name__)
 
 class CalendarManager:
-    SCOPES = ['https://www.googleapis.com/auth/calendar']
     
-    def __init__(self, auth_manager):
+    def __init__(self, auth_manager, user_id: str = "default"):
         self.auth_manager = auth_manager
+        self.user_id = user_id
         self.service = self._get_calendar_service()
         self.local_tz = get_localzone()
     
     def _get_calendar_service(self):
-        """Get or create Google Calendar service"""
-        creds = self.auth_manager.get_credentials()
-        return build('calendar', 'v3', credentials=creds)
+        """Get Google Calendar service for the current user."""
+        return self.auth_manager.get_calendar_service(self.user_id)
     
     def execute_command(self, intent: str, entities: Dict[str, Any]) -> str:
         """Execute calendar operation based on intent and entities"""
