@@ -75,6 +75,9 @@ def get_user_session(user_id: str) -> Dict[str, Any]:
             "memory": memory,
             "last_intent": None,
             "last_entities": None,
+            "awaiting_confirmation": False,
+            "pending_action": None,
+            "pending_data": None,
         }
         logger.info(f"Created session for user: {user_id}")
     
@@ -156,6 +159,43 @@ async def process_command(request: CommandRequest):
             import asyncio
             await asyncio.sleep(wait_time)
         
+        # Handle pending confirmation
+        if session.get("awaiting_confirmation"):
+            cmd_lower = request.text.lower()
+            if any(word in cmd_lower for word in ["yes", "confirm", "yeah", "yep", "do it", "haan", "han"]):
+                intent = session["pending_action"]
+                entities = session["pending_data"]
+                
+                # Execute the pending action
+                action_result = calendar.execute_command(intent, entities)
+                response = nlp.generate_response(action_result, intent, entities)
+                
+                # Clear pending state
+                session["awaiting_confirmation"] = False
+                session["pending_action"] = None
+                session["pending_data"] = None
+                
+                return CommandResponse(
+                    intent=intent,
+                    entities=entities,
+                    action_result=action_result,
+                    response=response,
+                    used_local_classifier=True,
+                )
+            elif any(word in cmd_lower for word in ["no", "cancel", "stop", "don't", "nahi", "na"]):
+                # Clear pending state and abort
+                session["awaiting_confirmation"] = False
+                session["pending_action"] = None
+                session["pending_data"] = None
+                
+                return CommandResponse(
+                    intent="cancel",
+                    entities={},
+                    action_result="Action cancelled.",
+                    response="Okay, I've cancelled that action.",
+                    used_local_classifier=True,
+                )
+        
         # Process command through NLP pipeline
         intent, entities, response_template = nlp.process_command(request.text)
         
@@ -171,13 +211,27 @@ async def process_command(request: CommandRequest):
             # Execute calendar operation
             action_result = calendar.execute_command(intent, entities)
             
+            # Detect if the action requires confirmation (e.g., delete with multiple matches)
+            if "Please confirm" in action_result:
+                session["awaiting_confirmation"] = True
+                session["pending_action"] = intent
+                
+                # Extract event IDs from the action result to pass back for confirmation
+                import re
+                event_ids = re.findall(r"ID:\s*([a-zA-Z0-9]+)", action_result)
+                if event_ids:
+                    # Provide the specific IDs to delete instead of general criteria
+                    session["pending_data"] = {"event_ids": event_ids}
+                else:
+                    session["pending_data"] = entities
+            
             # Generate response
             response = nlp.generate_response(action_result, intent, entities, response_template)
         else:
             response = "I'm sorry, I couldn't understand what you want me to do with your calendar."
         
         # Store in memory
-        if memory and intent:
+        if memory and intent and not session.get("awaiting_confirmation"):
             try:
                 memory.add_turn(request.text, intent, entities, response)
             except Exception as e:
@@ -236,16 +290,61 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
                 nlp.set_user_name(user_name)
             
             try:
+                # Handle pending confirmation
+                if session.get("awaiting_confirmation"):
+                    cmd_lower = command.lower()
+                    if any(word in cmd_lower for word in ["yes", "confirm", "yeah", "yep", "do it", "haan", "han"]):
+                        intent = session["pending_action"]
+                        entities = session["pending_data"]
+                        
+                        action_result = calendar.execute_command(intent, entities)
+                        response = nlp.generate_response(action_result, intent, entities)
+                        
+                        session["awaiting_confirmation"] = False
+                        session["pending_action"] = None
+                        session["pending_data"] = None
+                        
+                        await websocket.send_json({
+                            "type": "response",
+                            "intent": intent,
+                            "response": response,
+                            "action_result": action_result,
+                        })
+                        continue
+                    elif any(word in cmd_lower for word in ["no", "cancel", "stop", "don't", "nahi", "na"]):
+                        session["awaiting_confirmation"] = False
+                        session["pending_action"] = None
+                        session["pending_data"] = None
+                        
+                        await websocket.send_json({
+                            "type": "response",
+                            "intent": "cancel",
+                            "response": "Okay, I've cancelled that action.",
+                            "action_result": "Action cancelled.",
+                        })
+                        continue
+                
                 intent, entities, response_template = nlp.process_command(command)
                 
                 action_result = ""
                 if intent:
                     action_result = calendar.execute_command(intent, entities)
+                    
+                    if "Please confirm" in action_result:
+                        session["awaiting_confirmation"] = True
+                        session["pending_action"] = intent
+                        import re
+                        event_ids = re.findall(r"ID:\s*([a-zA-Z0-9]+)", action_result)
+                        if event_ids:
+                            session["pending_data"] = {"event_ids": event_ids}
+                        else:
+                            session["pending_data"] = entities
+                            
                     response = nlp.generate_response(action_result, intent, entities, response_template)
                 else:
                     response = "I couldn't understand that. Could you rephrase?"
                 
-                if memory and intent:
+                if memory and intent and not session.get("awaiting_confirmation"):
                     try:
                         memory.add_turn(command, intent, entities, response)
                     except Exception:
