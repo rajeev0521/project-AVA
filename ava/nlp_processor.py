@@ -216,9 +216,11 @@ class NLPProcessor:
         """
         Process natural language command. Returns (intent, entities, response_template).
         
-        Uses two-tier approach:
-        1. Local classifier (fast, ~5ms) if confidence >= 0.85
-        2. Gemini API fallback (slower, ~1-3s) for uncertain commands
+        Uses two-tier approach with intelligent fallback:
+        1. Local classifier (fast, ~5ms) if confidence >= 0.80
+           - If entities are sufficient → fully local (no API call)
+           - If entities are insufficient → Gemini for entity extraction only
+        2. Gemini API full extraction (slower, ~1-3s) for uncertain commands
         
         Args:
             command: The user's natural language command
@@ -249,18 +251,26 @@ class NLPProcessor:
                 # Set dynamic tone based on detected intent
                 self._dynamic_tone = self.get_dynamic_tone(intent)
                 
-                if confidence >= 0.85 and self.entity_extractor is not None:
-                    entities = self.entity_extractor.extract(resolved_command, intent)
-                    if self._entities_are_complete(intent, entities):
+                if confidence >= 0.80:
+                    # Intent is determined locally. Now try entity extraction.
+                    if self.entity_extractor is not None:
+                        entities = self.entity_extractor.extract(resolved_command, intent)
+                    else:
+                        entities = {}
+                    
+                    # Check if we have enough entities to execute
+                    if self._can_execute_with_entities(intent, entities):
                         response_template = self._local_response_template(intent, entities)
-                        logger.info(f"Using local classification (skipped API call)")
+                        logger.info("Full local resolution — no API call")
                         return intent, entities, response_template
                     else:
-                        logger.info(f"Local entities incomplete, falling through to Gemini")
+                        # Partial local: we know the intent, ask Gemini only for entities
+                        logger.info(f"Intent local ({confidence:.2f}), sending to Gemini for entity extraction only")
+                        return self._gemini_extract_entities_only(resolved_command, intent)
             except Exception as e:
                 logger.warning(f"Local classifier error: {e}")
 
-        # Tier 2: Fall back to Gemini API
+        # Tier 2: Fall back to Gemini API for full extraction
         return self._gemini_extract(resolved_command)
 
     def _gemini_extract(self, command: str) -> Tuple[Optional[str], Dict[str, Any], str]:
@@ -313,6 +323,77 @@ class NLPProcessor:
         elif intent == "update_event":
             return ('title' in entities or 'event_id' in entities)
         return False
+
+    def _can_execute_with_entities(self, intent: str, entities: Dict[str, Any]) -> bool:
+        """
+        Relaxed entity check — determines if the command can be executed
+        with the entities we have, using sensible defaults where possible.
+        
+        This is intentionally more lenient than _entities_are_complete() to
+        reduce unnecessary Gemini API calls. For example, create_event only
+        needs start_time (title defaults to 'Event', end_time defaults to +1hr).
+        """
+        if intent == "read_events":
+            return True  # Always executable — defaults to 7-day window
+        if intent == "delete_event":
+            return bool(
+                entities.get("title") or
+                entities.get("start_time") or
+                entities.get("event_id")
+            )
+        if intent == "create_event":
+            # Can execute if we have at least start_time
+            # (title defaults to 'Event', end_time defaults to start + 1hr)
+            return bool(entities.get("start_time"))
+        if intent == "update_event":
+            return bool(
+                entities.get("title") or
+                entities.get("event_id")
+            )
+        return False
+
+    def _gemini_extract_entities_only(
+        self, command: str, local_intent: str
+    ) -> Tuple[Optional[str], Dict[str, Any], str]:
+        """
+        Use Gemini only for entity extraction, preserving the locally classified intent.
+        
+        This avoids a full intent re-classification when we're already confident
+        about the intent from the local classifier.
+        """
+        try:
+            system_prompt = self._get_system_prompt()
+            conversation_history = self._get_conversation_history()
+            
+            chain = self.intent_prompt | self.intent_parser
+            result = chain.invoke({
+                "system_prompt": system_prompt,
+                "conversation_history": conversation_history,
+                "command": command,
+                "language": self._detected_language,
+                "tone": self._dynamic_tone,
+                "user_name": self.user_name,
+            })
+            
+            if result and result.entities:
+                entities = self._validate_and_fix_times(result.entities)
+            else:
+                entities = {}
+            
+            response_template = result.response_template if result else ""
+            
+            logger.info(f"Gemini entity extraction: intent={local_intent} (local), entities={list(entities.keys())}")
+            return local_intent, entities, response_template or ""
+            
+        except Exception as e:
+            logger.error(f"Gemini entity extraction failed: {e}")
+            # Fall back to whatever entities the local extractor got
+            if self.entity_extractor is not None:
+                entities = self.entity_extractor.extract(command, local_intent)
+            else:
+                entities = {}
+            response_template = self._local_response_template(local_intent, entities)
+            return local_intent, entities, response_template
 
     def _local_response_template(self, intent: Optional[str], entities: Dict[str, Any]) -> str:
         """Generate a response template locally without API call. Language-aware."""
