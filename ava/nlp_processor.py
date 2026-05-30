@@ -19,8 +19,14 @@ from pydantic import BaseModel, Field
 
 from logger import get_logger
 
-logger = get_logger(__name__)
+try:
+    from intent_classifier import IntentClassifier
+    from entity_extractor import EntityExtractor
+except ImportError:
+    IntentClassifier = None
+    EntityExtractor = None
 
+logger = get_logger(__name__)
 
 class CalendarIntent(BaseModel):
     """Structured output schema for Gemini intent extraction."""
@@ -171,27 +177,23 @@ class NLPProcessor:
     @property
     def intent_classifier(self):
         """Lazy-load the local intent classifier."""
-        if self._intent_classifier is None:
+        if self._intent_classifier is None and IntentClassifier is not None:
             try:
-                from intent_classifier import IntentClassifier
                 self._intent_classifier = IntentClassifier()
                 logger.info("Local intent classifier loaded")
-            except ImportError:
-                logger.warning("IntentClassifier not available, using Gemini-only mode")
-                self._intent_classifier = None
+            except Exception as e:
+                logger.warning(f"IntentClassifier init failed: {e}")
         return self._intent_classifier
     
     @property
     def entity_extractor(self):
         """Lazy-load the local entity extractor."""
-        if self._entity_extractor is None:
+        if self._entity_extractor is None and EntityExtractor is not None:
             try:
-                from entity_extractor import EntityExtractor
                 self._entity_extractor = EntityExtractor(self.local_tz)
                 logger.info("Local entity extractor loaded")
-            except ImportError:
-                logger.warning("EntityExtractor not available, using Gemini-only mode")
-                self._entity_extractor = None
+            except Exception as e:
+                logger.warning(f"EntityExtractor init failed: {e}")
         return self._entity_extractor
         
     def _get_system_prompt(self):
