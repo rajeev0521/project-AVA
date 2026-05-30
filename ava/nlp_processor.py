@@ -197,11 +197,11 @@ class NLPProcessor:
     def _get_system_prompt(self):
         """Formats the system prompt with dynamic data."""
         now = datetime.now(self.local_tz)
-        return self.system_prompt_template.format(
-            local_tz=str(self.local_tz),
-            current_date_time=now.strftime('%Y-%m-%d %H:%M:%S %Z'),
-            current_date=now.strftime('%Y-%m-%d')
-        )
+        prompt = self.system_prompt_template
+        prompt = prompt.replace("{local_tz}", str(self.local_tz))
+        prompt = prompt.replace("{current_date_time}", now.strftime('%Y-%m-%d %H:%M:%S %Z'))
+        prompt = prompt.replace("{current_date}", now.strftime('%Y-%m-%d'))
+        return prompt
 
     def _get_conversation_history(self) -> str:
         """Get formatted conversation history from memory manager."""
@@ -491,6 +491,8 @@ class NLPProcessor:
                 # Personalize the template
                 response = response_template.replace("{user_name}", self.user_name)
                 logger.info("Using pre-generated response template (no API call)")
+                if intent == "read_events":
+                    return f"{response}\n\n{action_result}"
                 return response
             
             # For errors or missing template, use local generation
