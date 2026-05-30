@@ -11,38 +11,40 @@ from ava.auth_manager import AuthManager
 
 class TestAuthManager(unittest.TestCase):
     def setUp(self):
-        os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = 'mock_service_account.json'
+        os.environ['GOOGLE_CLIENT_ID'] = 'mock_client_id'
+        os.environ['GOOGLE_CLIENT_SECRET'] = 'mock_client_secret'
         
-        self.patcher_exists = patch('os.path.exists')
-        self.mock_exists = self.patcher_exists.start()
+        # Setup TokenStore Mock
+        self.mock_token_store = MagicMock()
         
-        self.patcher_from_file = patch('ava.auth_manager.service_account.Credentials.from_service_account_file')
-        self.mock_from_file = self.patcher_from_file.start()
-        
-        self.mock_credentials = MagicMock()
-        self.mock_from_file.return_value = self.mock_credentials
-        
-        self.auth_manager = AuthManager()
-
-    def tearDown(self):
-        self.patcher_exists.stop()
-        self.patcher_from_file.stop()
+        self.auth_manager = AuthManager(self.mock_token_store)
 
     def test_get_credentials_success(self):
-        # Simulate file exists
-        self.mock_exists.return_value = True
+        # Simulate token_store returning valid token data
+        self.mock_token_store.load.return_value = {
+            "token": "mock_token",
+            "refresh_token": "mock_refresh",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "client_id": "mock_client_id",
+            "client_secret": "mock_client_secret",
+            "scopes": ["mock_scope"]
+        }
         
-        creds = self.auth_manager.get_credentials()
+        creds = self.auth_manager.get_credentials("test_user")
+        
         self.assertIsNotNone(creds)
-        self.assertEqual(creds, self.mock_credentials)
-        self.mock_from_file.assert_called_once()
+        self.assertEqual(creds.token, "mock_token")
+        self.mock_token_store.load.assert_called_once_with("test_user")
         
-    def test_get_credentials_file_not_found(self):
-        # Simulate file missing
-        self.mock_exists.return_value = False
+    def test_get_credentials_not_found(self):
+        # Simulate missing credentials
+        self.mock_token_store.load.return_value = None
         
-        with self.assertRaises(FileNotFoundError):
-            self.auth_manager.get_credentials()
+        with self.assertRaises(ValueError) as context:
+            self.auth_manager.get_credentials("missing_user")
+            
+        self.assertTrue("sign in first" in str(context.exception))
+        self.mock_token_store.load.assert_called_once_with("missing_user")
 
 if __name__ == '__main__':
     unittest.main()

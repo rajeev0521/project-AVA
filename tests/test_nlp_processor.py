@@ -1,11 +1,9 @@
 import unittest
 from unittest.mock import patch, MagicMock
 import datetime
-from tzlocal import get_localzone
 import sys
 import os
 
-# Add parent directory and ava directory to path to allow importing AVA modules
 root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(root_dir)
 sys.path.append(os.path.join(root_dir, 'ava'))
@@ -14,30 +12,54 @@ from ava.nlp_processor import NLPProcessor
 class TestNLPProcessor(unittest.TestCase):
     def setUp(self):
         os.environ['GEMINI_API_KEY'] = 'fake_key'
+        
+        # Patch models so we don't load them during tests
+        self.patcher_classifier = patch('ava.nlp_processor.IntentClassifier')
+        self.mock_classifier_class = self.patcher_classifier.start()
+        self.mock_classifier = MagicMock()
+        self.mock_classifier_class.return_value = self.mock_classifier
+        
+        self.patcher_extractor = patch('ava.nlp_processor.EntityExtractor')
+        self.mock_extractor_class = self.patcher_extractor.start()
+        self.mock_extractor = MagicMock()
+        self.mock_extractor_class.return_value = self.mock_extractor
+        
         self.patcher_llm = patch('ava.nlp_processor.ChatGoogleGenerativeAI')
         self.mock_llm = self.patcher_llm.start()
+        
         self.processor = NLPProcessor(user_name="Tester")
-        self.local_tz = get_localzone()
 
     def tearDown(self):
+        self.patcher_classifier.stop()
+        self.patcher_extractor.stop()
         self.patcher_llm.stop()
 
-    def test_fallback_parsing_create_event_today(self):
-        # Rigorous test of intent fallback and regex logic
-        intent, entities = self.processor._fallback_parsing("schedule a meeting for 2 pm")
+    def test_process_command_local_success(self):
+        # Simulate high confidence local classification with complete entities
+        self.mock_classifier.classify.return_value = ('create_event', 0.95)
+        self.mock_extractor.extract.return_value = {
+            'title': 'Meeting',
+            'start_time': '2030-01-01T10:00:00',
+            'end_time': '2030-01-01T11:00:00'
+        }
+        
+        intent, entities, response = self.processor.process_command("schedule a meeting")
+        
         self.assertEqual(intent, 'create_event')
         self.assertEqual(entities['title'], 'Meeting')
-        
-        # Check if the parsed hour is 14 (2 PM)
-        self.assertTrue('T14:00' in entities['start_time'])
+        self.mock_classifier.classify.assert_called_once()
+        self.mock_extractor.extract.assert_called_once()
 
-    def test_fallback_parsing_complex_time(self):
-        # Testing exact time formatting "2:30 pm"
-        intent, entities = self.processor._fallback_parsing("schedule an appointment for 2:30 pm")
-        self.assertEqual(intent, 'create_event')
-        self.assertEqual(entities['title'], 'Appointment')
+    def test_process_command_gemini_fallback(self):
+        # Simulate low confidence -> triggers full Gemini extraction
+        self.mock_classifier.classify.return_value = ('unknown', 0.5)
         
-        self.assertTrue('T14:30' in entities['start_time'])
+        # We need to mock _gemini_extract since we don't want to actually run the chain
+        with patch.object(self.processor, '_gemini_extract', return_value=('read_events', {}, '')) as mock_gemini:
+            intent, entities, response = self.processor.process_command("what's up")
+            
+            self.assertEqual(intent, 'read_events')
+            mock_gemini.assert_called_once()
 
     def test_validate_and_fix_times(self):
         # Testing timezone fix for UTC inputs (common from LLMs)
@@ -48,17 +70,11 @@ class TestNLPProcessor(unittest.TestCase):
         fixed = self.processor._validate_and_fix_times(mock_entities)
         
         # Assert the 'Z' format is converted correctly to local timezone
-        self.assertNotIn('Z', fixed['start_time'])
+        self.assertNotIn('Z', fixed.get('start_time', ''))
         
         # Parse output properly and assure it is localized
         out_dt = datetime.datetime.fromisoformat(fixed['start_time'])
         self.assertIsNotNone(out_dt.tzinfo)
-
-    def test_fallback_parsing_delete(self):
-        # Tests intent prioritizing logic
-        intent, entities = self.processor._fallback_parsing("please cancel my meeting")
-        self.assertEqual(intent, 'delete_event')
-        self.assertEqual(entities, {})
 
 if __name__ == '__main__':
     unittest.main()

@@ -13,7 +13,8 @@ from typing import Optional, Dict, Any
 from fastapi import FastAPI, HTTPException, Depends, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
+from starlette.middleware.sessions import SessionMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
@@ -23,6 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from nlp_processor import NLPProcessor
 from calendar_manager import CalendarManager
 from auth_manager import AuthManager
+from token_store import SupabaseTokenStore
 from memory_manager import MemoryManager
 from rate_limiter import RateLimiter, RateLimitExceeded
 from logger import get_logger
@@ -46,9 +48,29 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=os.getenv("SESSION_SECRET_KEY", "fallback-secret-key-for-dev")
+)
+
 # ── Global State ───────────────────────────────────────────────────
 
 rate_limiter = RateLimiter()
+
+# Initialize global auth components
+supabase_url = os.getenv("SUPABASE_URL")
+supabase_key = os.getenv("SUPABASE_KEY")
+supabase_client = None
+token_store = None
+global_auth_manager = None
+
+if supabase_url and supabase_key:
+    from supabase import create_client
+    supabase_client = create_client(supabase_url, supabase_key)
+    token_store = SupabaseTokenStore(supabase_client)
+    global_auth_manager = AuthManager(token_store)
+else:
+    logger.warning("Supabase credentials not found. Authentication disabled.")
 
 # Per-user session cache (in production, use Redis)
 user_sessions: Dict[str, Dict[str, Any]] = {}
@@ -57,9 +79,6 @@ user_sessions: Dict[str, Dict[str, Any]] = {}
 def get_user_session(user_id: str) -> Dict[str, Any]:
     """Get or create a user session with all components."""
     if user_id not in user_sessions:
-        supabase_url = os.getenv("SUPABASE_URL")
-        supabase_key = os.getenv("SUPABASE_KEY")
-        
         memory = None
         if supabase_url and supabase_key:
             try:
@@ -67,11 +86,9 @@ def get_user_session(user_id: str) -> Dict[str, Any]:
             except Exception as e:
                 logger.warning(f"Memory init failed for user {user_id}: {e}")
         
-        auth_manager = AuthManager()
-        
         user_sessions[user_id] = {
             "nlp": NLPProcessor(memory_manager=memory),
-            "calendar": CalendarManager(auth_manager),
+            "calendar": CalendarManager(global_auth_manager, user_id),
             "memory": memory,
             "last_intent": None,
             "last_entities": None,
@@ -110,6 +127,74 @@ class HealthResponse(BaseModel):
 
 
 # ── API Endpoints ──────────────────────────────────────────────────
+
+@app.get("/auth/login")
+async def auth_login(request: Request):
+    """Start Google OAuth flow."""
+    if not global_auth_manager:
+        raise HTTPException(status_code=500, detail="Auth manager not initialized")
+    
+    state = os.urandom(16).hex()
+    request.session["oauth_state"] = state
+    
+    auth_url = global_auth_manager.get_authorization_url(state)
+    return RedirectResponse(url=auth_url)
+
+
+@app.get("/auth/callback")
+async def auth_callback(request: Request, code: str = None, state: str = None, error: str = None):
+    """Handle Google OAuth callback."""
+    if error:
+        raise HTTPException(status_code=400, detail=f"OAuth error: {error}")
+    if not code or not state:
+        raise HTTPException(status_code=400, detail="Missing code or state")
+        
+    session_state = request.session.get("oauth_state")
+    if state != session_state:
+        raise HTTPException(status_code=400, detail="State mismatch. CSRF attempt?")
+        
+    try:
+        # Exchange code for credentials
+        creds = global_auth_manager.exchange_code(code)
+        
+        # Fetch user info from Google
+        user_info = global_auth_manager.get_user_info(creds)
+        user_id = user_info.get("id")
+        user_name = user_info.get("name", "User")
+        user_picture = user_info.get("picture", "")
+        
+        if not user_id:
+            raise HTTPException(status_code=400, detail="Failed to retrieve user ID from Google.")
+            
+        # Store credentials keyed by Google user ID
+        from google.oauth2.credentials import Credentials
+        def creds_to_dict(c: Credentials) -> dict:
+            return {
+                "token": c.token,
+                "refresh_token": c.refresh_token,
+                "token_uri": c.token_uri,
+                "client_id": c.client_id,
+                "client_secret": c.client_secret,
+                "scopes": c.scopes,
+            }
+        
+        token_store.save(user_id, creds_to_dict(creds))
+        logger.info(f"Successfully authenticated and stored creds for user {user_id}")
+        
+        import urllib.parse
+        redirect_url = f"/?user_id={user_id}&name={urllib.parse.quote(user_name)}&picture={urllib.parse.quote(user_picture)}"
+        return RedirectResponse(url=redirect_url)
+        
+    except Exception as e:
+        logger.error(f"OAuth callback failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/auth/logout")
+async def auth_logout(request: Request):
+    """Clear session data."""
+    request.session.clear()
+    return RedirectResponse(url="/")
 
 @app.get("/", response_class=FileResponse)
 async def serve_frontend():

@@ -221,6 +221,115 @@ html, body {
     gap: var(--space-md);
 }
 
+.user-profile {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: 4px 12px;
+    border-radius: var(--radius-full);
+    background: var(--color-bg-glass);
+    border: var(--border-subtle);
+    transition: var(--transition-base);
+}
+
+.user-profile:hover {
+    background: var(--color-bg-glass-hover);
+}
+
+.user-avatar {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    object-fit: cover;
+}
+
+.user-name {
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--color-text-primary);
+}
+
+.btn-logout {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    padding: 4px;
+    margin-left: 4px;
+    border-radius: var(--radius-sm);
+    transition: var(--transition-fast);
+}
+
+.btn-logout:hover {
+    color: var(--color-danger);
+    background: var(--color-danger-glow);
+}
+
+/* ── Login Screen ──────────────────────────────────────────────── */
+
+.login-screen {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    z-index: 5;
+    animation: fadeIn 0.6s ease-out;
+}
+
+.login-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding: var(--space-2xl);
+    border-radius: var(--radius-xl);
+    background: var(--color-bg-glass);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: var(--border-subtle);
+    box-shadow: var(--shadow-lg);
+    max-width: 440px;
+    width: 100%;
+}
+
+.login-card h2 {
+    font-size: 1.8rem;
+    margin-bottom: var(--space-sm);
+    font-weight: 600;
+}
+
+.login-card p {
+    color: var(--color-text-secondary);
+    margin-bottom: var(--space-xl);
+    font-size: 0.95rem;
+}
+
+.btn-google {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 24px;
+    background: #ffffff;
+    color: #3c4043;
+    border: none;
+    border-radius: 4px;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.95rem;
+    font-weight: 500;
+    cursor: pointer;
+    box-shadow: 0 1px 2px 0 rgba(60,64,67,0.30), 0 1px 3px 1px rgba(60,64,67,0.15);
+    transition: background-color 0.2s, box-shadow 0.2s;
+}
+
+.btn-google:hover {
+    background: #f8f9fa;
+    box-shadow: 0 1px 3px 0 rgba(60,64,67,0.30), 0 4px 8px 3px rgba(60,64,67,0.15);
+}
+
 .status-badge {
     display: flex;
     align-items: center;

@@ -88,13 +88,12 @@ class AuthManager:
         )
         return url
 
-    def exchange_code(self, code: str, user_id: str) -> Credentials:
+    def exchange_code(self, code: str) -> Credentials:
         """
-        Exchange an authorization code for OAuth credentials and store them.
+        Exchange an authorization code for OAuth credentials.
 
         Args:
             code: The authorization code from Google's callback.
-            user_id: The unique user identifier to associate credentials with.
 
         Returns:
             The obtained Credentials object.
@@ -106,9 +105,19 @@ class AuthManager:
         )
         flow.fetch_token(code=code)
         creds = flow.credentials
-        self.token_store.save(user_id, creds_to_dict(creds))
-        logger.info(f"OAuth credentials stored for user {user_id}")
         return creds
+
+    def get_user_info(self, creds: Credentials) -> Dict[str, Any]:
+        """
+        Fetch the user's Google profile information (id, email, name, picture).
+        """
+        import httpx
+        response = httpx.get(
+            "https://www.googleapis.com/oauth2/v2/userinfo",
+            headers={"Authorization": f"Bearer {creds.token}"}
+        )
+        response.raise_for_status()
+        return response.json()
 
     def get_credentials(self, user_id: str) -> Credentials:
         """

@@ -16,11 +16,14 @@ class TestCalendarManager(unittest.TestCase):
         self.patcher_build = patch('ava.calendar_manager.build')
         self.mock_build = self.patcher_build.start()
         
-        self.patcher_creds = patch('ava.auth_manager.service_account.Credentials')
+        self.patcher_creds = patch('google.oauth2.credentials.Credentials')
         self.mock_credentials = self.patcher_creds.start()
 
+        # Setup TokenStore Mock
+        self.mock_token_store = MagicMock()
+        
         # Setup AuthManager Mock
-        self.mock_auth = AuthManager()
+        self.mock_auth = AuthManager(self.mock_token_store)
         self.mock_auth.get_credentials = MagicMock(return_value=self.mock_credentials)
         
         # Setup Google API build mock
@@ -29,7 +32,7 @@ class TestCalendarManager(unittest.TestCase):
         self.mock_events = self.mock_service.events()
         
         # Initialize
-        self.manager = CalendarManager(self.mock_auth)
+        self.manager = CalendarManager(self.mock_auth, user_id="test_user")
 
     def tearDown(self):
         self.patcher_build.stop()

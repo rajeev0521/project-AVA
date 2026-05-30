@@ -3,18 +3,28 @@
  * Handles voice input/output and API communication.
  */
 
-// ── Configuration ────────────────────────────────────────────────
+// ── Configuration & Auth ─────────────────────────────────────────
 
 const API_BASE = window.location.origin;
 const WS_BASE = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}`;
-const USER_ID = localStorage.getItem('ava_user_id') || 'user_' + Math.random().toString(36).substr(2, 9);
-localStorage.setItem('ava_user_id', USER_ID);
 
-let USERNAME = localStorage.getItem('ava_user_name');
-if (!USERNAME) {
-    USERNAME = prompt("Welcome to AVA! What is your name?") || "there";
-    localStorage.setItem('ava_user_name', USERNAME);
+// Check for auth parameters from OAuth callback redirect
+const urlParams = new URLSearchParams(window.location.search);
+if (urlParams.has('user_id')) {
+    localStorage.setItem('ava_user_id', urlParams.get('user_id'));
+    if (urlParams.has('name')) {
+        localStorage.setItem('ava_user_name', urlParams.get('name'));
+    }
+    if (urlParams.has('picture')) {
+        localStorage.setItem('ava_user_picture', urlParams.get('picture'));
+    }
+    // Clean URL
+    window.history.replaceState({}, document.title, window.location.pathname);
 }
+
+const USER_ID = localStorage.getItem('ava_user_id');
+let USERNAME = localStorage.getItem('ava_user_name') || "User";
+const USER_PICTURE = localStorage.getItem('ava_user_picture');
 
 // ── State ────────────────────────────────────────────────────────
 
@@ -38,14 +48,50 @@ const apiRemaining = document.getElementById('apiRemaining');
 // ── Initialization ───────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
-    initWebSocket();
-    initSpeechRecognition();
-    initKeyboardShortcuts();
-    fetchApiStats();
-    
-    // Refresh API stats every 30 seconds
-    setInterval(fetchApiStats, 30000);
+    checkAuthState();
+    if (USER_ID) {
+        initWebSocket();
+        initSpeechRecognition();
+        initKeyboardShortcuts();
+        fetchApiStats();
+        
+        // Refresh API stats every 30 seconds
+        setInterval(fetchApiStats, 30000);
+    }
 });
+
+function checkAuthState() {
+    const loginScreen = document.getElementById('loginScreen');
+    const mainApp = document.getElementById('mainApp');
+    const userProfile = document.getElementById('userProfile');
+    
+    if (!USER_ID) {
+        // Not logged in
+        loginScreen.classList.remove('hidden');
+        mainApp.classList.add('hidden');
+        userProfile.classList.add('hidden');
+    } else {
+        // Logged in
+        loginScreen.classList.add('hidden');
+        mainApp.classList.remove('hidden');
+        userProfile.classList.remove('hidden');
+        
+        // Populate user profile
+        document.getElementById('userDisplayName').textContent = USERNAME;
+        const avatar = document.getElementById('userAvatar');
+        if (USER_PICTURE) {
+            avatar.src = USER_PICTURE;
+            avatar.classList.remove('hidden');
+        }
+    }
+}
+
+function logout() {
+    localStorage.removeItem('ava_user_id');
+    localStorage.removeItem('ava_user_name');
+    localStorage.removeItem('ava_user_picture');
+    window.location.href = '/auth/logout';
+}
 
 // ── WebSocket Connection ─────────────────────────────────────────
 
