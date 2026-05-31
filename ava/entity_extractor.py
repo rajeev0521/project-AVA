@@ -10,7 +10,7 @@ from typing import Dict, Any, Optional, Tuple
 from dateutil import parser as dateutil_parser
 from dateutil.relativedelta import relativedelta
 
-from logger import get_logger
+from .logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -46,6 +46,20 @@ class EntityExtractor:
         'seminar': 'Seminar',
         'birthday': 'Birthday',
         'reminder': 'Reminder',
+    }
+    
+    # Words that should NOT be captured as part of a title
+    STOP_WORDS = {
+        'at', 'on', 'from', 'to', 'for', 'in', 'the', 'a', 'an', 'my',
+        'am', 'pm', 'tomorrow', 'today', 'next', 'this', 'with',
+        'create', 'schedule', 'add', 'book', 'set', 'make', 'update',
+        'change', 'modify', 'move', 'shift', 'delete', 'cancel', 'remove',
+        'show', 'list', 'what', 'events', 'called', 'titled', 'named',
+        # Hindi stop words
+        'ko', 'ka', 'ki', 'ke', 'se', 'pe', 'par', 'mein', 'hai', 'hain',
+        'karo', 'kro', 'do', 'rakh', 'rakhdo', 'banao', 'lagao', 'hatao',
+        'dikha', 'dikhao', 'batao', 'baje', 'subah', 'shaam', 'raat',
+        'dopahar', 'kal', 'aaj', 'agle', 'is', 'wo', 'woh',
     }
     
     # Relative day patterns
@@ -128,34 +142,90 @@ class EntityExtractor:
     
     def _extract_title(self, command: str, intent: str) -> Optional[str]:
         """Extract event title from command."""
-        # Check for explicit "called X" or "titled X" patterns
-        title_patterns = [
-            r'(?:called|titled|named)\s+["\']?(.+?)["\']?(?:\s+(?:at|on|for|from)|\s*$)',
-            r'(?:title|naam)\s+(?:is|hai|ko)?\s*["\']?(.+?)["\']?(?:\s+(?:at|on|for|from)|\s*$)',
+        # Pattern 1: Explicit "called X" / "titled X" / "named X"
+        explicit_patterns = [
+            r'(?:called|titled|named)\s+["\']?(.+?)["\']?(?:\s+(?:at|on|for|from|tomorrow|today|next)\b|$)',
+            r'(?:title|naam)\s+(?:is|hai|ko)?\s*["\']?(.+?)["\']?(?:\s+(?:at|on|for|from|tomorrow|today|next)\b|$)',
         ]
         
-        for pattern in title_patterns:
+        for pattern in explicit_patterns:
             match = re.search(pattern, command, re.IGNORECASE)
             if match:
-                return match.group(1).strip().title()
+                title = match.group(1).strip()
+                # Clean stop words from edges
+                title = self._clean_title(title)
+                if title:
+                    return title.title()
         
-        # Check for known keywords
-        for keyword, title in self.TITLE_KEYWORDS.items():
+        # Pattern 2: Multi-word title extraction around known keywords
+        # e.g., "team meeting", "doctor appointment", "design sync with team"
+        for keyword, default_title in self.TITLE_KEYWORDS.items():
             if keyword in command:
-                # Try to get more context (e.g., "team meeting" → "Team Meeting")
-                word_pattern = rf'(\w+\s+)?{re.escape(keyword)}(\s+\w+)?'
-                match = re.search(word_pattern, command, re.IGNORECASE)
-                if match:
-                    full_title = match.group(0).strip().title()
-                    if len(full_title) > 2:
-                        return full_title
-                return title
+                title = self._extract_title_around_keyword(command, keyword)
+                if title:
+                    return title
+                return default_title
         
         # Default for create intents
         if intent == 'create_event':
             return 'Event'
         
         return None
+    
+    def _extract_title_around_keyword(self, command: str, keyword: str) -> Optional[str]:
+        """
+        Extract a multi-word title centered around a keyword.
+        Captures adjective/noun words before and after, stops at prepositions and time words.
+        """
+        # Split command into words
+        words = command.split()
+        
+        # Find keyword position
+        keyword_idx = None
+        for i, w in enumerate(words):
+            if w == keyword:
+                keyword_idx = i
+                break
+        
+        if keyword_idx is None:
+            return None
+        
+        # Expand backwards — capture qualifying words
+        start = keyword_idx
+        for i in range(keyword_idx - 1, -1, -1):
+            word = words[i].lower()
+            if word in self.STOP_WORDS or re.match(r'^\d+$', word):
+                break
+            start = i
+        
+        # Expand forwards — capture qualifying words
+        end = keyword_idx
+        for i in range(keyword_idx + 1, len(words)):
+            word = words[i].lower()
+            if word in self.STOP_WORDS or re.match(r'^\d', word):
+                break
+            end = i
+        
+        title_words = words[start:end + 1]
+        title = ' '.join(title_words).strip()
+        
+        # Clean and validate
+        title = self._clean_title(title)
+        if title and len(title) > 1:
+            return title.title()
+        
+        return None
+    
+    def _clean_title(self, title: str) -> str:
+        """Remove stop words from the edges of a title."""
+        words = title.split()
+        # Strip stop words from start
+        while words and words[0].lower() in self.STOP_WORDS:
+            words.pop(0)
+        # Strip stop words from end
+        while words and words[-1].lower() in self.STOP_WORDS:
+            words.pop()
+        return ' '.join(words)
     
     def _extract_date(self, command: str) -> Optional[datetime]:
         """Extract a date from the command."""
@@ -183,11 +253,18 @@ class EntityExtractor:
                 target = now + timedelta(days=days_ahead)
                 return target
         
-        # Try dateutil parser for explicit dates
-        # Look for date-like patterns
+        # Try dateutil parser for explicit dates (with AND without year)
         date_patterns = [
+            # Full dates with year
             r'(\d{1,2}(?:st|nd|rd|th)?\s+(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{4})',
-            r'(\d{1,2}(?:st|nd|rd|th)?\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s*\d{0,4})',
+            r'((?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}(?:st|nd|rd|th)?(?:\s*,\s*|\s+)\d{4})',
+            # Dates WITHOUT year — "June 5th", "5th June", "June 5", "Dec 25"
+            r'((?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}(?:st|nd|rd|th)?)',
+            r'(\d{1,2}(?:st|nd|rd|th)?\s+(?:january|february|march|april|may|june|july|august|september|october|november|december))',
+            # Abbreviated months — "Jun 5th", "5th Jun"
+            r'((?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s+\d{1,2}(?:st|nd|rd|th)?)',
+            r'(\d{1,2}(?:st|nd|rd|th)?\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec))',
+            # Numeric formats
             r'(\d{1,2}/\d{1,2}/\d{2,4})',
             r'(\d{4}-\d{2}-\d{2})',
         ]
@@ -196,7 +273,12 @@ class EntityExtractor:
             match = re.search(pattern, command, re.IGNORECASE)
             if match:
                 try:
-                    parsed = dateutil_parser.parse(match.group(1), fuzzy=True)
+                    parsed = dateutil_parser.parse(match.group(1), fuzzy=True, default=now)
+                    # If the parsed date is in the past and no year was specified, assume next year
+                    if parsed.date() < now.date():
+                        # Check if the original string had a year
+                        if not re.search(r'\d{4}', match.group(1)):
+                            parsed = parsed.replace(year=now.year + 1)
                     return parsed.replace(tzinfo=self.local_tz)
                 except (ValueError, TypeError):
                     continue
@@ -423,4 +505,3 @@ class EntityExtractor:
         start = now
         end = now + timedelta(days=7)
         return start, end
-

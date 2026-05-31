@@ -7,7 +7,7 @@ import json
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
 
-from logger import get_logger
+from .logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -28,22 +28,15 @@ class MemoryManager:
     # Max turns to include in LLM context
     MAX_CONTEXT_TURNS = 10
     
-    def __init__(self, supabase_url: str, supabase_key: str, user_id: str):
+    def __init__(self, supabase_client, user_id: str):
         """
         Initialize memory manager.
         
         Args:
-            supabase_url: Supabase project URL
-            supabase_key: Supabase anon/service key
+            supabase_client: Shared Supabase client instance (created once in api.py)
             user_id: Current user's ID
         """
-        try:
-            from supabase import create_client, Client
-            self.supabase: Client = create_client(supabase_url, supabase_key)
-        except ImportError:
-            logger.error("supabase package not installed. Run: pip install supabase")
-            raise
-        
+        self.supabase = supabase_client
         self.user_id = user_id
         
         # In-memory cache of recent turns (avoids DB round-trips)

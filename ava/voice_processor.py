@@ -12,12 +12,12 @@ import os
 import whisper
 import pyaudio
 from dotenv import load_dotenv
-import speech_manager
+from . import Speech_manager as speech_manager
 import openwakeword
 from openwakeword.model import Model
 import time
 
-from logger import get_logger
+from .logger import get_logger
 
 logger = get_logger(__name__)
 

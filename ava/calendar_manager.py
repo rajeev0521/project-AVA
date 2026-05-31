@@ -6,7 +6,7 @@ import pytz
 from typing import Dict, List, Optional, Any
 import re
 
-from logger import get_logger
+from .logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -20,33 +20,39 @@ class CalendarManager:
     def _get_calendar_service(self):
         """Get Google Calendar service for the current user."""
         try:
+            if not self.auth_manager:
+                return None
             return self.auth_manager.get_calendar_service(self.user_id)
         except ValueError as e:
             logger.warning(f"Failed to get calendar service: {e}")
             return None
     
     def execute_command(self, intent: str, entities: Dict[str, Any]) -> str:
-        """Execute calendar operation based on intent and entities"""
+        """Execute calendar operation based on intent and entities."""
         service = self._get_calendar_service()
         if not service:
             return "Please sign in with Google using the button above before managing your calendar."
-            
-        # Bind the service to self for the duration of the execution
-        self.service = service
         
         try:
             if intent == "create_event":
-                return self.create_event(entities)
+                return self._create_event(service, entities)
             elif intent == "read_events":
-                return self.read_events(entities)
+                return self._read_events(service, entities)
             elif intent == "update_event":
-                return self.update_event(entities)
+                return self._update_event(service, entities)
             elif intent == "delete_event":
-                return self.delete_event(entities)
+                return self._delete_event(service, entities)
             else:
                 return "I'm not sure how to help with this calendar operation."
         except Exception as e:
             return f"Unexpected error occurred: {str(e)}"
+    
+    def read_events(self, entities: Dict[str, Any]) -> str:
+        """Public method for reading events (used by /api/events endpoint)."""
+        service = self._get_calendar_service()
+        if not service:
+            return "Please sign in with Google using the button above before managing your calendar."
+        return self._read_events(service, entities)
     
     def _validate_datetime(self, datetime_str) -> Optional[datetime]:
         """Validate and parse datetime string or datetime object.
@@ -95,8 +101,8 @@ class CalendarManager:
         except (ValueError, TypeError):
             return str(datetime_str)
     
-    def create_event(self, entities: Dict[str, Any]) -> str:
-        """Create a new calendar event with comprehensive validation"""
+    def _create_event(self, service, entities: Dict[str, Any]) -> str:
+        """Create a new calendar event with comprehensive validation."""
         
         # Validate required fields
         start_time_str = entities.get('start_time')
@@ -106,8 +112,11 @@ class CalendarManager:
             return "Error: Both start time and end time are required to create an event."
         
         # Parse and validate times
-        start_time = self._validate_datetime(start_time_str)
-        end_time = self._validate_datetime(end_time_str)
+        try:
+            start_time = self._validate_datetime(start_time_str)
+            end_time = self._validate_datetime(end_time_str)
+        except ValueError as e:
+            return f"Error: Invalid date/time format — {e}"
         
         if not start_time or not end_time:
             return "Error: Invalid date/time format. Please provide valid start and end times."
@@ -130,7 +139,7 @@ class CalendarManager:
         
         try:
             # Check for conflicts
-            conflict_check = self._check_for_conflicts(start_time, end_time)
+            conflict_check = self._check_for_conflicts(service, start_time, end_time)
             conflict_warning = ""
             if conflict_check:
                 conflict_warning = f" (Note: This overlaps with existing event: {conflict_check})"
@@ -157,7 +166,7 @@ class CalendarManager:
                 event['attendees'] = [{'email': email.strip()} for email in entities['attendees']]
             
             # Create the event
-            created_event = self.service.events().insert(calendarId='primary', body=event).execute()
+            created_event = service.events().insert(calendarId='primary', body=event).execute()
             
             # Format response
             title = created_event.get('summary', 'Event')
@@ -176,8 +185,8 @@ class CalendarManager:
         except Exception as e:
             return f"Error creating event: {str(e)}"
     
-    def read_events(self, entities: Dict[str, Any]) -> str:
-        """Read calendar events with flexible time range options"""
+    def _read_events(self, service, entities: Dict[str, Any]) -> str:
+        """Read calendar events with flexible time range options."""
         try:
             # Determine time range
             start_time = entities.get('start_time')
@@ -200,7 +209,7 @@ class CalendarManager:
                     end_time = self._format_datetime_for_api(end_dt)
             
             # Query events
-            events_result = self.service.events().list(
+            events_result = service.events().list(
                 calendarId='primary',
                 timeMin=start_time,
                 timeMax=end_time,
@@ -226,11 +235,14 @@ class CalendarManager:
                 # Format time display
                 start_display = self._format_datetime_for_display(start)
                 if end:
-                    end_dt = self._validate_datetime(end)
-                    if end_dt:
-                        end_time_only = end_dt.strftime('%I:%M %p')
-                        time_display = f"{start_display} - {end_time_only}"
-                    else:
+                    try:
+                        end_dt = self._validate_datetime(end)
+                        if end_dt:
+                            end_time_only = end_dt.strftime('%I:%M %p')
+                            time_display = f"{start_display} - {end_time_only}"
+                        else:
+                            time_display = start_display
+                    except ValueError:
                         time_display = start_display
                 else:
                     time_display = start_display
@@ -249,8 +261,8 @@ class CalendarManager:
         except Exception as e:
             return f"Error reading events: {str(e)}"
     
-    def update_event(self, entities: Dict[str, Any]) -> str:
-        """Update an existing calendar event"""
+    def _update_event(self, service, entities: Dict[str, Any]) -> str:
+        """Update an existing calendar event."""
         try:
             event_id = entities.get('event_id')
             event_title = entities.get('title')
@@ -258,7 +270,7 @@ class CalendarManager:
             # If no event_id provided, try to find by title and date
             if not event_id and event_title:
                 event_id = self._find_event_by_title_and_date(
-                    event_title, 
+                    service, event_title, 
                     entities.get('start_time'), 
                     entities.get('date')
                 )
@@ -268,7 +280,7 @@ class CalendarManager:
             
             # Get existing event
             try:
-                event = self.service.events().get(calendarId='primary', eventId=event_id).execute()
+                event = service.events().get(calendarId='primary', eventId=event_id).execute()
             except HttpError as e:
                 if e.resp.status == 404:
                     return "Error: Event not found. It may have been deleted or you don't have access."
@@ -283,23 +295,31 @@ class CalendarManager:
                 changes.append(f"title to '{entities['title']}'")
             
             if 'start_time' in entities:
-                start_time = self._validate_datetime(entities['start_time'])
+                try:
+                    start_time = self._validate_datetime(entities['start_time'])
+                except ValueError:
+                    start_time = None
                 if start_time:
                     event['start']['dateTime'] = self._format_datetime_for_api(start_time)
                     changes.append(f"start time to {self._format_datetime_for_display(entities['start_time'])}")
                     
                     # Adjust end time if only start time changed
                     if 'end_time' not in entities and 'end' in event:
-                        original_end = self._validate_datetime(event['end']['dateTime'])
-                        if original_end:
+                        try:
+                            original_end = self._validate_datetime(event['end']['dateTime'])
                             original_start = self._validate_datetime(event['start']['dateTime'])
-                            if original_start:
+                            if original_end and original_start:
                                 duration = original_end - original_start
                                 new_end = start_time + duration
                                 event['end']['dateTime'] = self._format_datetime_for_api(new_end)
+                        except ValueError:
+                            pass
             
             if 'end_time' in entities:
-                end_time = self._validate_datetime(entities['end_time'])
+                try:
+                    end_time = self._validate_datetime(entities['end_time'])
+                except ValueError:
+                    end_time = None
                 if end_time:
                     event['end']['dateTime'] = self._format_datetime_for_api(end_time)
                     changes.append(f"end time to {self._format_datetime_for_display(entities['end_time'])}")
@@ -317,13 +337,16 @@ class CalendarManager:
             
             # Validate updated times
             if 'start' in event and 'end' in event:
-                start_dt = self._validate_datetime(event['start']['dateTime'])
-                end_dt = self._validate_datetime(event['end']['dateTime'])
-                if start_dt and end_dt and start_dt >= end_dt:
-                    return "Error: Updated start time must be before end time."
+                try:
+                    start_dt = self._validate_datetime(event['start']['dateTime'])
+                    end_dt = self._validate_datetime(event['end']['dateTime'])
+                    if start_dt and end_dt and start_dt >= end_dt:
+                        return "Error: Updated start time must be before end time."
+                except ValueError:
+                    pass
             
             # Update the event
-            updated_event = self.service.events().update(
+            updated_event = service.events().update(
                 calendarId='primary',
                 eventId=event_id,
                 body=event
@@ -337,8 +360,8 @@ class CalendarManager:
         except Exception as e:
             return f"Error updating event: {str(e)}"
     
-    def delete_event(self, entities: Dict[str, Any]) -> str:
-        """Delete calendar event(s) with multiple identification methods"""
+    def _delete_event(self, service, entities: Dict[str, Any]) -> str:
+        """Delete calendar event(s) with multiple identification methods."""
         try:
             event_id = entities.get('event_id')
             event_title = entities.get('title')
@@ -346,45 +369,61 @@ class CalendarManager:
             end_time = entities.get('end_time')
             date = entities.get('date')
             
+            # Handle event_ids from pending confirmation
+            event_ids = entities.get('event_ids')
+            if event_ids:
+                return self._delete_by_ids(service, event_ids)
+            
             # Method 1: Delete by event ID
             if event_id:
-                return self._delete_by_id(event_id)
+                return self._delete_by_id(service, event_id)
             
             # Method 2: Delete by title and optional date
             if event_title:
-                return self._delete_by_title_and_date(event_title, start_time or date)
+                return self._delete_by_title_and_date(service, event_title, start_time or date)
             
             # Method 3: Delete all events in time range
             if start_time and end_time:
-                return self._delete_by_time_range(start_time, end_time)
+                return self._delete_by_time_range(service, start_time, end_time)
             
             # Method 4: Delete all events on specific date
             if date or start_time:
                 target_date = date or start_time
-                return self._delete_by_date(target_date)
+                return self._delete_by_date(service, target_date)
             
             return "Error: Please specify which event to delete by providing the event title, date, or time range."
             
         except Exception as e:
             return f"Error deleting event: {str(e)}"
     
-    def _delete_by_id(self, event_id: str) -> str:
-        """Delete event by ID"""
+    def _delete_by_id(self, service, event_id: str) -> str:
+        """Delete event by ID."""
         try:
             # Get event details before deletion
-            event = self.service.events().get(calendarId='primary', eventId=event_id).execute()
+            event = service.events().get(calendarId='primary', eventId=event_id).execute()
             title = event.get('summary', 'Untitled Event')
             
-            self.service.events().delete(calendarId='primary', eventId=event_id).execute()
+            service.events().delete(calendarId='primary', eventId=event_id).execute()
             return f"✅ Successfully deleted '{title}'."
         except HttpError as e:
             if e.resp.status == 404:
                 return "Error: Event not found. It may have already been deleted."
             raise
     
-    def _delete_by_title_and_date(self, title: str, date_str: str = None) -> str:
-        """Delete event by title and optional date"""
-        events = self._find_events_by_title(title, date_str)
+    def _delete_by_ids(self, service, event_ids: List[str]) -> str:
+        """Delete multiple events by their IDs (used for confirmed bulk deletes)."""
+        deleted = 0
+        for event_id in event_ids:
+            try:
+                service.events().delete(calendarId='primary', eventId=event_id).execute()
+                deleted += 1
+            except Exception as e:
+                logger.warning(f"Failed to delete event {event_id}: {e}")
+        return f"✅ Successfully deleted {deleted} event(s)."
+    
+    def _delete_by_title_and_date(self, service, title: str, date_str: str = None) -> str:
+        """Delete event by title and optional date."""
+        events = self._find_events_by_title(service, title, date_str)
         
         if not events:
             date_info = f" on {self._format_datetime_for_display(date_str).split(' at ')[0]}" if date_str else ""
@@ -394,69 +433,41 @@ class CalendarManager:
             return f"Found {len(events)} events with title '{title}'. Please be more specific or provide a date."
         
         event = events[0]
-        self.service.events().delete(calendarId='primary', eventId=event['id']).execute()
+        service.events().delete(calendarId='primary', eventId=event['id']).execute()
         return f"✅ Successfully deleted '{title}'."
     
-    def _delete_by_time_range(self, start_time: str, end_time: str, confirm: bool = False, event_ids: List[str] = None) -> str:
-        """Delete all events in time range, with optional confirmation step"""
+    def _delete_by_time_range(self, service, start_time: str, end_time: str) -> str:
+        """Delete all events in time range, with confirmation step."""
         try:
-            if event_ids is None:
-                events_result = self.service.events().list(
-                    calendarId='primary',
-                    timeMin=start_time,
-                    timeMax=end_time,
-                    singleEvents=True,
-                    orderBy='startTime'
-                ).execute()
-                events = events_result.get('items', [])
-                event_ids = [event['id'] for event in events]
-                event_titles = [event.get('summary', 'Untitled') for event in events]
-            else:
-                # If event_ids are provided, fetch event titles for confirmation message
-                event_titles = []
-                for event_id in event_ids:
-                    try:
-                        event = self.service.events().get(calendarId='primary', eventId=event_id).execute()
-                        event_titles.append(event.get('summary', 'Untitled'))
-                    except Exception:
-                        event_titles.append('Untitled')
+            events_result = service.events().list(
+                calendarId='primary',
+                timeMin=start_time,
+                timeMax=end_time,
+                singleEvents=True,
+                orderBy='startTime'
+            ).execute()
+            events = events_result.get('items', [])
 
-            if not event_ids:
+            if not events:
                 return "No events found in the specified time range."
 
-            if not confirm:
-                return f"Found {len(event_ids)} events to delete: {', '.join(event_titles)}. Please confirm if you want to delete all these events."
+            event_ids = [event['id'] for event in events]
+            event_titles = [event.get('summary', 'Untitled') for event in events]
 
-            # Confirmed: delete all events
-            for event_id in event_ids:
-                self.service.events().delete(calendarId='primary', eventId=event_id).execute()
-            return f"✅ Successfully deleted {len(event_ids)} event(s)."
+            # Request confirmation
+            id_list = ", ".join(f"ID: {eid}" for eid in event_ids)
+            return f"Found {len(event_ids)} events to delete: {', '.join(event_titles)}. {id_list}. Please confirm if you want to delete all these events."
+            
         except HttpError as e:
             return f"Error deleting events: {str(e)}"
 
-    def get_pending_delete_event_ids(self, entities):
-        """Get event IDs for pending delete confirmation (used by session/context)"""
-        start_time = entities.get('start_time')
-        end_time = entities.get('end_time')
-        events_result = self.service.events().list(
-            calendarId='primary',
-            timeMin=start_time,
-            timeMax=end_time,
-            singleEvents=True,
-            orderBy='startTime'
-        ).execute()
-        events = events_result.get('items', [])
-        return [event['id'] for event in events]
-
-    def confirm_delete_events(self, event_ids):
-        """Actually delete the events after user confirmation"""
-        for event_id in event_ids:
-            self.service.events().delete(calendarId='primary', eventId=event_id).execute()
-        return f"✅ Successfully deleted {len(event_ids)} event(s)."
-    
-    def _delete_by_date(self, date_str: str) -> str:
-        """Delete all events on a specific date"""
-        target_date = self._validate_datetime(date_str)
+    def _delete_by_date(self, service, date_str: str) -> str:
+        """Delete all events on a specific date."""
+        try:
+            target_date = self._validate_datetime(date_str)
+        except ValueError as e:
+            return f"Error: Invalid date format — {e}"
+        
         if not target_date:
             return "Error: Invalid date format."
         
@@ -465,16 +476,20 @@ class CalendarManager:
         end_of_day = target_date.replace(hour=23, minute=59, second=59, microsecond=999999)
         
         return self._delete_by_time_range(
+            service,
             self._format_datetime_for_api(start_of_day),
             self._format_datetime_for_api(end_of_day)
         )
     
-    def _find_events_by_title(self, title: str, date_str: str = None) -> List[Dict]:
-        """Find events by title and optional date"""
+    def _find_events_by_title(self, service, title: str, date_str: str = None) -> List[Dict]:
+        """Find events by title and optional date."""
         try:
             # Set search time range
             if date_str:
-                target_date = self._validate_datetime(date_str)
+                try:
+                    target_date = self._validate_datetime(date_str)
+                except ValueError:
+                    target_date = None
                 if target_date:
                     start_time = target_date.replace(hour=0, minute=0, second=0)
                     end_time = target_date.replace(hour=23, minute=59, second=59)
@@ -489,7 +504,7 @@ class CalendarManager:
                 start_time = now
                 end_time = now + timedelta(days=30)
             
-            events_result = self.service.events().list(
+            events_result = service.events().list(
                 calendarId='primary',
                 timeMin=self._format_datetime_for_api(start_time),
                 timeMax=self._format_datetime_for_api(end_time),
@@ -512,20 +527,20 @@ class CalendarManager:
             logger.error(f"Error finding events: {e}")
             return []
     
-    def _find_event_by_title_and_date(self, title: str, date_str: str = None, fallback_date: str = None) -> Optional[str]:
-        """Find event ID by title and date"""
+    def _find_event_by_title_and_date(self, service, title: str, date_str: str = None, fallback_date: str = None) -> Optional[str]:
+        """Find event ID by title and date."""
         search_date = date_str or fallback_date
-        events = self._find_events_by_title(title, search_date)
+        events = self._find_events_by_title(service, title, search_date)
         
         if len(events) == 1:
             return events[0]['id']
         
         return None
     
-    def _check_for_conflicts(self, start_time: datetime, end_time: datetime) -> Optional[str]:
-        """Check for conflicting events"""
+    def _check_for_conflicts(self, service, start_time: datetime, end_time: datetime) -> Optional[str]:
+        """Check for conflicting events."""
         try:
-            events_result = self.service.events().list(
+            events_result = service.events().list(
                 calendarId='primary',
                 timeMin=self._format_datetime_for_api(start_time),
                 timeMax=self._format_datetime_for_api(end_time),
@@ -541,7 +556,7 @@ class CalendarManager:
             return None
     
     def _get_time_range_description(self, start_time, end_time) -> str:
-        """Get human-readable description of time range"""
+        """Get human-readable description of time range."""
         try:
             start_dt = self._validate_datetime(start_time)
             end_dt = self._validate_datetime(end_time)
@@ -557,4 +572,4 @@ class CalendarManager:
             
             return "in the specified time range"
         except (ValueError, TypeError):
-            return "in the specified time range" 
+            return "in the specified time range"

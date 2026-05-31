@@ -55,23 +55,32 @@ CREATE INDEX IF NOT EXISTS idx_entity_context_user
 
 -- ══════════════════════════════════════════════════════════════════
 -- Row Level Security (RLS) — Each user can only see their own data
+-- Note: Policies use current_setting('request.jwt.claim.sub') to match the user_id (Google sub claim).
+-- Service Role keys bypass these policies automatically.
 -- ══════════════════════════════════════════════════════════════════
 
 -- Enable RLS on all tables
 ALTER TABLE conversations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE entity_context ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_tokens ENABLE ROW LEVEL SECURITY;
 
--- Policy: Users can read/write only their own conversations
+-- Policy: Users can manage own conversations
 CREATE POLICY "Users can manage own conversations" ON conversations
     FOR ALL
-    USING (true)
-    WITH CHECK (true);
+    USING (user_id = current_setting('request.jwt.claim.sub', true) OR current_user = 'service_role')
+    WITH CHECK (user_id = current_setting('request.jwt.claim.sub', true) OR current_user = 'service_role');
 
 -- Policy: Users can manage own entity context
 CREATE POLICY "Users can manage own entity context" ON entity_context
     FOR ALL
-    USING (true)
-    WITH CHECK (true);
+    USING (user_id = current_setting('request.jwt.claim.sub', true) OR current_user = 'service_role')
+    WITH CHECK (user_id = current_setting('request.jwt.claim.sub', true) OR current_user = 'service_role');
+
+-- Policy: Users can manage own tokens
+CREATE POLICY "Users can manage own tokens" ON user_tokens
+    FOR ALL
+    USING (user_id = current_setting('request.jwt.claim.sub', true) OR current_user = 'service_role')
+    WITH CHECK (user_id = current_setting('request.jwt.claim.sub', true) OR current_user = 'service_role');
 
 -- ══════════════════════════════════════════════════════════════════
 -- User Tokens Table — OAuth credential storage per user

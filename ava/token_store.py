@@ -6,7 +6,7 @@ Provides secure per-user storage of Google OAuth refresh/access tokens.
 from datetime import datetime, timezone
 from typing import Dict, Optional, Any
 
-from logger import get_logger
+from .logger import get_logger
 
 logger = get_logger(__name__)
 

@@ -8,14 +8,11 @@ import sys
 import time
 from dotenv import load_dotenv
 
-# Ensure ava directory is in path for local imports
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
-from voice_processor import VoiceProcessor
-from calendar_manager import CalendarManager
-from nlp_processor import NLPProcessor
-from auth_manager import AuthManager
-from logger import get_logger
+from .voice_processor import VoiceProcessor
+from .calendar_manager import CalendarManager
+from .nlp_processor import NLPProcessor
+from .auth_manager import AuthManager
+from .logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -43,7 +40,14 @@ class AVA:
         
         logger.info("Initializing AVA...")
         
-        self.auth_manager = AuthManager()
+        # In desktop mode, we might not have a Supabase connection yet
+        class DummyTokenStore:
+            def save(self, *args): pass
+            def load(self, *args): return None
+            def delete(self, *args): pass
+            def exists(self, *args): return False
+            
+        self.auth_manager = AuthManager(token_store=DummyTokenStore())
         self.voice_processor = VoiceProcessor()
         self.calendar_manager = CalendarManager(self.auth_manager)
         

@@ -6,8 +6,9 @@ Uses a two-tier system: local intent classifier (fast) → Gemini API (fallback)
 
 import os
 import json
-from datetime import datetime
 import re
+import html
+from datetime import datetime
 from dotenv import load_dotenv
 from tzlocal import get_localzone
 from typing import Optional, Dict, Any, Tuple
@@ -17,11 +18,11 @@ from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from pydantic import BaseModel, Field
 
-from logger import get_logger
+from .logger import get_logger
 
 try:
-    from intent_classifier import IntentClassifier
-    from entity_extractor import EntityExtractor
+    from .intent_classifier import IntentClassifier
+    from .entity_extractor import EntityExtractor
 except ImportError:
     IntentClassifier = None
     EntityExtractor = None
@@ -63,9 +64,31 @@ _INTENT_TONE_MAP = {
     'delete_event': 'careful',          # Deleting = cautious & confirming
 }
 
+# Greeting patterns
+_GREETING_PATTERNS = [
+    'hello', 'hi', 'hey', 'good morning', 'good afternoon', 'good evening',
+    'how are you', 'what\'s up', 'whats up', 'howdy', 'yo', 'sup',
+    'namaste', 'namaskar', 'kaise ho', 'kya haal', 'kya hal',
+]
+
+# Off-topic patterns (not calendar related)
+_OFF_TOPIC_PATTERNS = [
+    'weather', 'news', 'joke', 'tell me a joke', 'song', 'play',
+    'calculator', 'math', 'translate', 'define', 'meaning of',
+    'who is', 'what is the capital', 'how to cook',
+]
+
+
+def sanitize_user_input(text: str) -> str:
+    """
+    Sanitize user input to prevent XSS when reflected in responses.
+    Escapes HTML special characters.
+    """
+    return html.escape(text, quote=True)
+
 
 class NLPProcessor:
-    def __init__(self, user_name=None, memory_manager=None):
+    def __init__(self, user_name=None, memory_manager=None, llm=None, user_timezone=None):
         """
         Initialize NLP Processor.
         
@@ -73,6 +96,9 @@ class NLPProcessor:
             user_name: User's display name (from frontend/auth, not env).
                        If None, defaults to a polite generic address.
             memory_manager: Optional MemoryManager instance for conversational context
+            llm: Optional shared ChatGoogleGenerativeAI instance. If None, creates one.
+            user_timezone: User's timezone string from the client (e.g., 'Asia/Kolkata').
+                          Falls back to server timezone if not provided.
         """
         # Configure env
         load_dotenv()
@@ -80,26 +106,32 @@ class NLPProcessor:
         if not api_key:
             raise ValueError("GEMINI_API_KEY not found in environment variables")
         
-        # Initialize LangChain model — single instance, reused everywhere
-        self.llm = ChatGoogleGenerativeAI(
-            model="gemini-2.0-flash",
-            google_api_key=api_key,
-            temperature=0.0
-        )
+        # Use shared LLM instance if provided, otherwise create one
+        if llm is not None:
+            self.llm = llm
+        else:
+            self.llm = ChatGoogleGenerativeAI(
+                model="gemini-2.0-flash",
+                google_api_key=api_key,
+                temperature=0.0
+            )
         
         # Structured output parser for intent
         self.intent_parser = self.llm.with_structured_output(CalendarIntent)
         
-        # Get local timezone
-        self.local_tz = get_localzone()
+        # Use client timezone if provided, otherwise fall back to server timezone
+        if user_timezone:
+            import pytz
+            try:
+                self.local_tz = pytz.timezone(user_timezone)
+            except pytz.UnknownTimeZoneError:
+                logger.warning(f"Unknown timezone '{user_timezone}', falling back to server timezone")
+                self.local_tz = get_localzone()
+        else:
+            self.local_tz = get_localzone()
 
-        # Username from frontend/auth — NOT from env
-        self.user_name = user_name or "there"
-
-        # Language and tone are DYNAMIC — detected per-command
-        # These are set per-call, not at init time
-        self._detected_language = "English"
-        self._dynamic_tone = "friendly"
+        # Username — sanitize to prevent XSS (Bug #10)
+        self.user_name = sanitize_user_input(user_name) if user_name else "there"
 
         # Memory manager for conversational context
         self.memory = memory_manager
@@ -124,22 +156,27 @@ class NLPProcessor:
         self._intent_classifier = None
         self._entity_extractor = None
         
-        logger.info(f"NLPProcessor initialized (model=gemini-2.0-flash, user={self.user_name})")
+        logger.info(f"NLPProcessor initialized (model=gemini-2.0-flash, user={self.user_name}, tz={self.local_tz})")
     
     def set_user_name(self, name: str):
         """Update username dynamically (called when user logs in / sets name from UI)."""
-        self.user_name = name or "there"
+        self.user_name = sanitize_user_input(name) if name else "there"
         logger.info(f"Username updated to: {self.user_name}")
+    
+    def set_timezone(self, timezone_str: str):
+        """Update timezone from client-provided value."""
+        if timezone_str:
+            import pytz
+            try:
+                self.local_tz = pytz.timezone(timezone_str)
+                logger.info(f"Timezone updated to: {self.local_tz}")
+            except pytz.UnknownTimeZoneError:
+                logger.warning(f"Unknown timezone '{timezone_str}', keeping current: {self.local_tz}")
     
     @staticmethod
     def detect_language(text: str) -> str:
         """
         Auto-detect whether the user is speaking English, Hindi, or Hinglish.
-        
-        Detection logic:
-        1. If Devanagari script characters present → Hindi
-        2. Count Hindi/Hinglish marker words vs total words
-        3. If >40% Hindi markers → Hindi, 15-40% → Hinglish, else → English
         
         Returns: "Hindi", "Hinglish", or "English"
         """
@@ -163,16 +200,20 @@ class NLPProcessor:
     
     @staticmethod
     def get_dynamic_tone(intent: Optional[str]) -> str:
-        """
-        Select response tone dynamically based on intent.
-        
-        - create_event → professional (scheduling should feel crisp)
-        - read_events  → friendly (information sharing is warm)
-        - update_event → helpful (changes need supportive language)
-        - delete_event → careful (destructive actions need caution)
-        - unknown      → friendly (default)
-        """
+        """Select response tone dynamically based on intent."""
         return _INTENT_TONE_MAP.get(intent, 'friendly')
+    
+    @staticmethod
+    def is_greeting(command: str) -> bool:
+        """Check if the command is a greeting."""
+        cmd_lower = command.lower().strip()
+        return any(pattern in cmd_lower for pattern in _GREETING_PATTERNS)
+    
+    @staticmethod
+    def is_off_topic(command: str) -> bool:
+        """Check if the command is off-topic (not calendar related)."""
+        cmd_lower = command.lower().strip()
+        return any(pattern in cmd_lower for pattern in _OFF_TOPIC_PATTERNS)
         
     @property
     def intent_classifier(self):
@@ -218,21 +259,29 @@ class NLPProcessor:
         """
         Process natural language command. Returns (intent, entities, response_template).
         
-        Uses two-tier approach with intelligent fallback:
+        Handles greetings and off-topic queries before NLP processing.
+        Uses two-tier approach for calendar commands:
         1. Local classifier (fast, ~5ms) if confidence >= 0.80
-           - If entities are sufficient → fully local (no API call)
-           - If entities are insufficient → Gemini for entity extraction only
         2. Gemini API full extraction (slower, ~1-3s) for uncertain commands
-        
-        Args:
-            command: The user's natural language command
-            
-        Returns:
-            Tuple of (intent, entities_dict, response_template)
         """
+        # Step 0: Handle greetings and off-topic queries (Bug #6, #7)
+        if self.is_greeting(command):
+            detected_lang = self.detect_language(command)
+            if detected_lang in ("Hindi", "Hinglish"):
+                greeting = f"Namaste {self.user_name}! Main AVA hoon, aapki AI calendar assistant. Aap mujhse apne schedule ke baare mein pooch sakte hain ya events create, update, delete kar sakte hain."
+            else:
+                greeting = f"Hi {self.user_name}! I'm AVA, your AI calendar assistant. You can ask me to show your schedule, create events, update or delete them. How can I help you today?"
+            return None, {}, greeting
+        
+        if self.is_off_topic(command):
+            detected_lang = self.detect_language(command)
+            if detected_lang in ("Hindi", "Hinglish"):
+                return None, {}, f"Sorry {self.user_name}, main sirf calendar se related kaam kar sakti hoon. Kya aap koi event create, dekhna, update ya delete karna chahte hain?"
+            return None, {}, f"Sorry {self.user_name}, I can only help with calendar-related tasks. Would you like to create, view, update, or delete an event?"
+
         # Step 1: Detect language from user's input
-        self._detected_language = self.detect_language(command)
-        logger.info(f"Detected language: {self._detected_language}")
+        detected_language = self.detect_language(command)
+        logger.info(f"Detected language: {detected_language}")
 
         # Step 2: Resolve references if memory is available
         resolved_command = command
@@ -251,7 +300,7 @@ class NLPProcessor:
                 logger.info(f"Local classifier: intent={intent}, confidence={confidence:.3f}")
                 
                 # Set dynamic tone based on detected intent
-                self._dynamic_tone = self.get_dynamic_tone(intent)
+                dynamic_tone = self.get_dynamic_tone(intent)
                 
                 if confidence >= 0.80:
                     # Intent is determined locally. Now try entity extraction.
@@ -262,45 +311,46 @@ class NLPProcessor:
                     
                     # Check if we have enough entities to execute
                     if self._can_execute_with_entities(intent, entities):
-                        response_template = self._local_response_template(intent, entities)
+                        response_template = self._local_response_template(intent, entities, detected_language)
                         logger.info("Full local resolution — no API call")
                         return intent, entities, response_template
                     else:
                         # Partial local: we know the intent, ask Gemini only for entities
                         logger.info(f"Intent local ({confidence:.2f}), sending to Gemini for entity extraction only")
-                        return self._gemini_extract_entities_only(resolved_command, intent)
+                        return self._gemini_extract_entities_only(resolved_command, intent, detected_language, dynamic_tone)
             except Exception as e:
                 logger.warning(f"Local classifier error: {e}")
 
         # Tier 2: Fall back to Gemini API for full extraction
-        return self._gemini_extract(resolved_command)
+        return self._gemini_extract(resolved_command, detected_language)
 
-    def _gemini_extract(self, command: str) -> Tuple[Optional[str], Dict[str, Any], str]:
+    def _gemini_extract(self, command: str, detected_language: str = "English") -> Tuple[Optional[str], Dict[str, Any], str]:
         """Extract intent and entities using Gemini API."""
         try:
             system_prompt = self._get_system_prompt()
             conversation_history = self._get_conversation_history()
+            dynamic_tone = "friendly"
             
             chain = self.intent_prompt | self.intent_parser
             result = chain.invoke({
                 "system_prompt": system_prompt,
                 "conversation_history": conversation_history,
                 "command": command,
-                "language": self._detected_language,
-                "tone": self._dynamic_tone,
+                "language": detected_language,
+                "tone": dynamic_tone,
                 "user_name": self.user_name,
             })
             
             if not result or not result.intent:
                 logger.warning(f"Gemini returned no intent for: {command}")
-                return self._fallback_parsing(command)
+                return self._fallback_parsing(command, detected_language)
 
             intent = result.intent
             entities = result.entities or {}
             response_template = result.response_template or ""
             
             # Set dynamic tone based on the extracted intent
-            self._dynamic_tone = self.get_dynamic_tone(intent)
+            dynamic_tone = self.get_dynamic_tone(intent)
 
             # Validate and fix time formats
             entities = self._validate_and_fix_times(entities)
@@ -310,8 +360,8 @@ class NLPProcessor:
 
         except Exception as e:
             logger.error(f"Gemini extraction failed: {e}")
-            intent, entities = self._fallback_parsing(command)
-            response_template = self._local_response_template(intent, entities) if intent else ""
+            intent, entities = self._fallback_parsing(command, detected_language)
+            response_template = self._local_response_template(intent, entities, detected_language) if intent else ""
             return intent, entities, response_template
 
     def _entities_are_complete(self, intent: str, entities: Dict[str, Any]) -> bool:
@@ -330,10 +380,6 @@ class NLPProcessor:
         """
         Relaxed entity check — determines if the command can be executed
         with the entities we have, using sensible defaults where possible.
-        
-        This is intentionally more lenient than _entities_are_complete() to
-        reduce unnecessary Gemini API calls. For example, create_event only
-        needs start_time (title defaults to 'Event', end_time defaults to +1hr).
         """
         if intent == "read_events":
             return True  # Always executable — defaults to 7-day window
@@ -344,8 +390,6 @@ class NLPProcessor:
                 entities.get("event_id")
             )
         if intent == "create_event":
-            # Can execute if we have at least start_time
-            # (title defaults to 'Event', end_time defaults to start + 1hr)
             return bool(entities.get("start_time"))
         if intent == "update_event":
             return bool(
@@ -355,13 +399,10 @@ class NLPProcessor:
         return False
 
     def _gemini_extract_entities_only(
-        self, command: str, local_intent: str
+        self, command: str, local_intent: str, detected_language: str = "English", dynamic_tone: str = "friendly"
     ) -> Tuple[Optional[str], Dict[str, Any], str]:
         """
         Use Gemini only for entity extraction, preserving the locally classified intent.
-        
-        This avoids a full intent re-classification when we're already confident
-        about the intent from the local classifier.
         """
         try:
             system_prompt = self._get_system_prompt()
@@ -372,8 +413,8 @@ class NLPProcessor:
                 "system_prompt": system_prompt,
                 "conversation_history": conversation_history,
                 "command": command,
-                "language": self._detected_language,
-                "tone": self._dynamic_tone,
+                "language": detected_language,
+                "tone": dynamic_tone,
                 "user_name": self.user_name,
             })
             
@@ -394,21 +435,21 @@ class NLPProcessor:
                 entities = self.entity_extractor.extract(command, local_intent)
             else:
                 entities = {}
-            response_template = self._local_response_template(local_intent, entities)
+            response_template = self._local_response_template(local_intent, entities, detected_language)
             return local_intent, entities, response_template
 
-    def _local_response_template(self, intent: Optional[str], entities: Dict[str, Any]) -> str:
+    def _local_response_template(self, intent: Optional[str], entities: Dict[str, Any], detected_language: str = "English") -> str:
         """Generate a response template locally without API call. Language-aware."""
         if not intent:
-            if self._detected_language in ("Hindi", "Hinglish"):
+            if detected_language in ("Hindi", "Hinglish"):
                 return "Maaf kijiye, aapka request samajh nahi aaya."
             return "I couldn't understand your request."
         
         title = entities.get('title', 'your event')
         name = self.user_name
-        lang = self._detected_language
+        is_hindi = detected_language in ("Hindi", "Hinglish")
         
-        if lang in ("Hindi", "Hinglish"):
+        if is_hindi:
             templates = {
                 "create_event": f"Done! {name}, maine '{title}' schedule kar diya hai.",
                 "read_events": f"{name}, yeh hain aapke upcoming events.",
@@ -453,7 +494,7 @@ class NLPProcessor:
                     
         return entities
 
-    def _fallback_parsing(self, command):
+    def _fallback_parsing(self, command, detected_language: str = "English"):
         """Enhanced fallback parsing when LangChain extraction fails"""
         command_lower = command.lower()
 
@@ -556,43 +597,32 @@ class NLPProcessor:
         """
         Generate a natural language response for the user.
         
-        Uses the response_template from the initial LLM call when available,
-        avoiding a second API call entirely. Falls back to static templates.
-        
-        IMPORTANT: Never prepends a positive template (e.g. "Here are your
-        upcoming events") when the action_result signals empty results or errors.
-        
-        Args:
-            action_result: The result string from the calendar action
-            intent: The detected intent
-            entities: The extracted entities
-            response_template: Pre-generated template from the LLM (avoids 2nd API call)
-            
-        Returns:
-            Natural language response string
+        IMPORTANT: Never prepends a positive template when the action_result
+        signals empty results, errors, or auth requirements.
         """
         try:
-            # Detect empty results or error conditions in action_result
+            # Detect error/empty/auth conditions in action_result (Bug #2 fix)
             result_lower = action_result.lower()
-            no_events_or_error = any(p in result_lower for p in [
+            is_negative_result = any(p in result_lower for p in [
                 "no events found", "no upcoming events", "couldn't find",
                 "error", "warning", "failed", "couldn't understand",
-                "no events", "could not identify",
+                "no events", "could not identify", "please sign in",
+                "sign in with google", "permission denied", "not found",
             ])
             
+            # If action_result signals an error/auth issue, return it directly
+            # Do NOT prepend a success template like "Here are your events"
+            if is_negative_result:
+                return action_result
+            
             # If we have a response template AND result is positive, use the template
-            if response_template and not no_events_or_error:
+            if response_template:
                 # Personalize the template
                 response = response_template.replace("{user_name}", self.user_name)
                 logger.info("Using pre-generated response template (no API call)")
                 if intent == "read_events":
                     return f"{response}\n\n{action_result}"
                 return response
-            
-            # For empty results or errors, return action_result directly
-            # to avoid contradictory messages like "Here are your events" + "No events found"
-            if intent == "read_events" or no_events_or_error:
-                return action_result
             
             # For other cases, use local generation
             return self._local_generate_response(action_result, intent, entities)
@@ -605,8 +635,8 @@ class NLPProcessor:
                                   entities: dict = None) -> str:
         """Generate response locally without any API call. Bilingual & tone-aware."""
         name = self.user_name
-        lang = self._detected_language
-        is_hindi = lang in ("Hindi", "Hinglish")
+        detected_language = self.detect_language(action_result) if action_result else "English"
+        is_hindi = detected_language in ("Hindi", "Hinglish")
         
         if entities:
             # Format times for display

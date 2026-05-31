@@ -5,14 +5,13 @@ credential refresh, and per-user Calendar API service construction.
 """
 
 import os
-import json
 from typing import Optional, Dict, Any
 from google_auth_oauthlib.flow import Flow
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 
-from logger import get_logger
+from .logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -50,7 +49,10 @@ class AuthManager:
 
         Args:
             token_store: An object implementing save(user_id, dict) and load(user_id) -> dict.
+                         Required — cannot be None.
         """
+        if token_store is None:
+            raise ValueError("token_store is required for AuthManager")
         self.token_store = token_store
         
         self.client_id = os.getenv('GOOGLE_CLIENT_ID')
@@ -118,17 +120,28 @@ class AuthManager:
         creds = flow.credentials
         return creds
 
-    def get_user_info(self, creds: Credentials) -> Dict[str, Any]:
+    def get_user_info(self, credentials: Credentials) -> dict:
         """
-        Fetch the user's Google profile information (id, email, name, picture).
+        Fetch the user's profile info from Google.
+
+        Args:
+            credentials: Valid OAuth credentials.
+
+        Returns:
+            Dict with 'id', 'email', 'name', 'picture' fields.
         """
-        import httpx
-        response = httpx.get(
-            "https://www.googleapis.com/oauth2/v2/userinfo",
-            headers={"Authorization": f"Bearer {creds.token}"}
-        )
-        response.raise_for_status()
-        return response.json()
+        try:
+            service = build("oauth2", "v2", credentials=credentials)
+            user_info = service.userinfo().get().execute()
+            return {
+                "id": user_info.get("id", ""),
+                "email": user_info.get("email", ""),
+                "name": user_info.get("name", ""),
+                "picture": user_info.get("picture", ""),
+            }
+        except Exception as e:
+            logger.error(f"Failed to fetch user info: {e}")
+            return {"id": "", "email": "", "name": "", "picture": ""}
 
     def get_credentials(self, user_id: str) -> Credentials:
         """
@@ -182,26 +195,3 @@ class AuthManager:
             A googleapiclient Resource for the Calendar v3 API.
         """
         return build("calendar", "v3", credentials=self.get_credentials(user_id))
-
-    def get_user_info(self, credentials: Credentials) -> dict:
-        """
-        Fetch the user's profile info from Google.
-
-        Args:
-            credentials: Valid OAuth credentials.
-
-        Returns:
-            Dict with 'id', 'email', 'name', 'picture' fields.
-        """
-        try:
-            service = build("oauth2", "v2", credentials=credentials)
-            user_info = service.userinfo().get().execute()
-            return {
-                "id": user_info.get("id", ""),
-                "email": user_info.get("email", ""),
-                "name": user_info.get("name", ""),
-                "picture": user_info.get("picture", ""),
-            }
-        except Exception as e:
-            logger.error(f"Failed to fetch user info: {e}")
-            return {"id": "", "email": "", "name": "", "picture": ""}
