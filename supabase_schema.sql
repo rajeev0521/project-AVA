@@ -65,18 +65,21 @@ ALTER TABLE entity_context ENABLE ROW LEVEL SECURITY;
 ALTER TABLE user_tokens ENABLE ROW LEVEL SECURITY;
 
 -- Policy: Users can manage own conversations
+DROP POLICY IF EXISTS "Users can manage own conversations" ON conversations;
 CREATE POLICY "Users can manage own conversations" ON conversations
     FOR ALL
     USING (user_id = current_setting('request.jwt.claim.sub', true) OR current_user = 'service_role')
     WITH CHECK (user_id = current_setting('request.jwt.claim.sub', true) OR current_user = 'service_role');
 
 -- Policy: Users can manage own entity context
+DROP POLICY IF EXISTS "Users can manage own entity context" ON entity_context;
 CREATE POLICY "Users can manage own entity context" ON entity_context
     FOR ALL
     USING (user_id = current_setting('request.jwt.claim.sub', true) OR current_user = 'service_role')
     WITH CHECK (user_id = current_setting('request.jwt.claim.sub', true) OR current_user = 'service_role');
 
 -- Policy: Users can manage own tokens
+DROP POLICY IF EXISTS "Users can manage own tokens" ON user_tokens;
 CREATE POLICY "Users can manage own tokens" ON user_tokens
     FOR ALL
     USING (user_id = current_setting('request.jwt.claim.sub', true) OR current_user = 'service_role')
