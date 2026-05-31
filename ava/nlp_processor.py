@@ -473,17 +473,21 @@ class NLPProcessor:
                 if not isinstance(time_str, str):
                     continue
                 try:
-                    # Parse the time string
+                    # Remove timezone offset/Z to get naive time
                     if 'Z' in time_str:
-                        # Convert from UTC to local time
-                        dt = datetime.fromisoformat(time_str.replace('Z', '+00:00'))
-                        dt = dt.astimezone(self.local_tz)
+                        time_str = time_str.replace('Z', '')
+                    elif '+' in time_str and len(time_str) > 19:
+                        time_str = time_str[:19]
+                    elif '-' in time_str and len(time_str) > 19 and time_str.rfind('-') > 10:
+                        time_str = time_str[:19]
+                        
+                    dt = datetime.fromisoformat(time_str)
+                    
+                    # Apply the user's correct local timezone
+                    if hasattr(self.local_tz, 'localize'):
+                        dt = self.local_tz.localize(dt)
                     else:
-                        # Try to parse as ISO format
-                        dt = datetime.fromisoformat(time_str)
-                        # If no timezone info, assume local timezone
-                        if dt.tzinfo is None:
-                            dt = dt.replace(tzinfo=self.local_tz)
+                        dt = dt.replace(tzinfo=self.local_tz)
                     
                     # Convert back to ISO format with local timezone
                     entities[time_key] = dt.isoformat()

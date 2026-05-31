@@ -55,11 +55,7 @@ class CalendarManager:
         return self._read_events(service, entities)
     
     def _validate_datetime(self, datetime_str) -> Optional[datetime]:
-        """Validate and parse datetime string or datetime object.
-        
-        Raises ValueError on parse failure instead of returning None,
-        so callers can surface meaningful error messages to the user.
-        """
+        """Validate and parse datetime string or datetime object."""
         if not datetime_str:
             return None
         
@@ -67,8 +63,10 @@ class CalendarManager:
             # Accept datetime objects directly
             if isinstance(datetime_str, datetime):
                 if datetime_str.tzinfo is None:
-                    return self.local_tz.localize(datetime_str)
-                return datetime_str.astimezone(self.local_tz)
+                    if hasattr(self.local_tz, 'localize'):
+                        return self.local_tz.localize(datetime_str)
+                    return datetime_str.replace(tzinfo=self.local_tz)
+                return datetime_str
             
             # Handle different string formats
             if datetime_str.endswith('Z'):
@@ -79,8 +77,11 @@ class CalendarManager:
                 dt = datetime.fromisoformat(datetime_str)
             
             if dt.tzinfo is None:
-                dt = self.local_tz.localize(dt)
-            return dt.astimezone(self.local_tz)
+                if hasattr(self.local_tz, 'localize'):
+                    dt = self.local_tz.localize(dt)
+                else:
+                    dt = dt.replace(tzinfo=self.local_tz)
+            return dt
         except (ValueError, TypeError) as e:
             logger.error(f"_validate_datetime failed for '{datetime_str}': {e}")
             raise ValueError(f"Cannot parse datetime: '{datetime_str}'") from e
@@ -88,7 +89,10 @@ class CalendarManager:
     def _format_datetime_for_api(self, dt: datetime) -> str:
         """Format datetime for Google Calendar API"""
         if dt.tzinfo is None:
-            dt = self.local_tz.localize(dt)
+            if hasattr(self.local_tz, 'localize'):
+                dt = self.local_tz.localize(dt)
+            else:
+                dt = dt.replace(tzinfo=self.local_tz)
         return dt.isoformat()
     
     def _format_datetime_for_display(self, datetime_str) -> str:
@@ -149,11 +153,9 @@ class CalendarManager:
                 'summary': entities.get('title', 'New Event').strip(),
                 'start': {
                     'dateTime': self._format_datetime_for_api(start_time),
-                    'timeZone': str(self.local_tz),
                 },
                 'end': {
                     'dateTime': self._format_datetime_for_api(end_time),
-                    'timeZone': str(self.local_tz),
                 },
             }
             
