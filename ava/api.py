@@ -167,7 +167,7 @@ async def auth_callback(request: Request, code: str = None, state: str = None, e
         
         # Fetch user info from Google
         user_info = global_auth_manager.get_user_info(creds)
-        user_id = user_info.get("id")
+        user_id = user_info.get("id") or user_info.get("sub")
         user_name = user_info.get("name", "User")
         user_picture = user_info.get("picture", "")
         
