@@ -4,9 +4,7 @@ Handles wake word detection, voice input via Whisper, and TTS output.
 """
 
 import speech_recognition as sr
-import sounddevice as sd
 import numpy as np
-from scipy.io import wavfile
 import tempfile
 import os
 import whisper
