@@ -3,17 +3,24 @@ Voice Processor for AVA (Desktop mode).
 Handles wake word detection, voice input via Whisper, and TTS output.
 """
 
-import speech_recognition as sr
-import numpy as np
 import tempfile
 import os
-import whisper
-import pyaudio
-from dotenv import load_dotenv
-from . import Speech_manager as speech_manager
-import openwakeword
-from openwakeword.model import Model
 import time
+from dotenv import load_dotenv
+
+from . import Speech_manager as speech_manager
+
+try:
+    import speech_recognition as sr
+    import numpy as np
+    import whisper
+    import pyaudio
+    import openwakeword
+    from openwakeword.model import Model
+    VOICE_DEPS_AVAILABLE = True
+except ImportError:
+    VOICE_DEPS_AVAILABLE = False
+
 
 from .logger import get_logger
 
@@ -22,6 +29,8 @@ logger = get_logger(__name__)
 
 class VoiceProcessor:
     def __init__(self):
+        if not VOICE_DEPS_AVAILABLE:
+            raise RuntimeError("Desktop voice dependencies are not installed. Please install with `pip install .[desktop]`")
         load_dotenv()
         self.recognizer = sr.Recognizer()
         

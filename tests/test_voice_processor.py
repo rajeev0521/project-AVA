@@ -8,8 +8,9 @@ import numpy as np
 root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(root_dir)
 sys.path.append(os.path.join(root_dir, 'ava'))
-from ava.voice_processor import VoiceProcessor
+from ava.voice_processor import VoiceProcessor, VOICE_DEPS_AVAILABLE
 
+@unittest.skipIf(not VOICE_DEPS_AVAILABLE, "Desktop voice dependencies not installed")
 class TestVoiceProcessor(unittest.TestCase):
     def setUp(self):
         os.environ['WAKE_WORD_MODEL'] = 'hey jarvis'
