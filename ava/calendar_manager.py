@@ -554,7 +554,7 @@ class CalendarManager:
                 return events[0].get('summary', 'Untitled Event')
             
             return None
-        except:
+        except Exception:
             return None
     
     def _get_time_range_description(self, start_time, end_time) -> str:

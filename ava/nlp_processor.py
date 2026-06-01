@@ -130,7 +130,7 @@ class NLPProcessor:
         else:
             self.local_tz = get_localzone()
 
-        # Username — sanitize to prevent XSS (Bug #10)
+        # Sanitize username to prevent reflected XSS in generated responses
         self.user_name = sanitize_user_input(user_name) if user_name else "there"
 
         # Memory manager for conversational context
@@ -264,7 +264,7 @@ class NLPProcessor:
         1. Local classifier (fast, ~5ms) if confidence >= 0.80
         2. Gemini API full extraction (slower, ~1-3s) for uncertain commands
         """
-        # Step 0: Handle greetings and off-topic queries (Bug #6, #7)
+        # Pre-filter: handle non-calendar intents locally without NLP processing
         if self.is_greeting(command):
             detected_lang = self.detect_language(command)
             if detected_lang in ("Hindi", "Hinglish"):
@@ -605,7 +605,7 @@ class NLPProcessor:
         signals empty results, errors, or auth requirements.
         """
         try:
-            # Detect error/empty/auth conditions in action_result (Bug #2 fix)
+            # Guard: detect negative/error/auth conditions in action_result
             result_lower = action_result.lower()
             is_negative_result = any(p in result_lower for p in [
                 "no events found", "no upcoming events", "couldn't find",

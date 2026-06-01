@@ -224,7 +224,7 @@ function stopListening() {
     try {
         if (recognition) recognition.stop();
     } catch (e) {
-        // Ignore
+        // Recognition may not be active; suppress stop errors gracefully
     }
 }
 

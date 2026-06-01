@@ -67,7 +67,7 @@ class TestVoiceProcessor(unittest.TestCase):
         mock_rec_instance = MagicMock()
         mock_rec_cls.return_value = mock_rec_instance
         
-        # Make the recognizer's listen and recognize_whisper return dummy text
+        # Configure mock recognizer to return a simulated transcription result
         mock_rec_instance.listen.return_value = b'audio_data'
         mock_rec_instance.recognize_whisper.return_value = "hello ava"
         

@@ -116,3 +116,24 @@ class SupabaseTokenStore:
             return result.data is not None
         except Exception:
             return False
+
+
+class NullTokenStore:
+    """
+    Null Object pattern implementation of the token store interface.
+
+    Used in environments where Supabase is not configured (e.g., desktop mode,
+    local development). All operations are safe no-ops.
+    """
+
+    def save(self, user_id: str, creds_dict: Dict[str, Any]) -> None:
+        logger.debug(f"NullTokenStore: save called for user {user_id} (no-op)")
+
+    def load(self, user_id: str) -> Optional[Dict[str, Any]]:
+        return None
+
+    def delete(self, user_id: str) -> None:
+        logger.debug(f"NullTokenStore: delete called for user {user_id} (no-op)")
+
+    def exists(self, user_id: str) -> bool:
+        return False

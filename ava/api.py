@@ -1,4 +1,5 @@
 import os
+import secrets
 from contextlib import asynccontextmanager
 from typing import Dict, Any, Optional
 
@@ -51,13 +52,9 @@ async def lifespan(app: FastAPI):
         token_store = SupabaseTokenStore(supabase)
         auth_manager = AuthManager(token_store=token_store)
     else:
-        # Fallback for local testing without DB
-        class DummyTokenStore:
-            def save(self, *args): pass
-            def load(self, *args): return None
-            def delete(self, *args): pass
-            def exists(self, *args): return False
-        auth_manager = AuthManager(token_store=DummyTokenStore())
+        # Graceful degradation: use null token store when Supabase is unavailable
+        from .token_store import NullTokenStore
+        auth_manager = AuthManager(token_store=NullTokenStore())
         
     # 3. Initialize Rate Limiter & Session Manager
     rate_limiter = RateLimiter(max_rpm=15, max_rpd=1500)
@@ -235,7 +232,7 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
         logger.error(f"WebSocket error for user {user_id}: {e}")
         try:
             await websocket.close()
-        except:
+        except Exception:
             pass
 
 
@@ -266,7 +263,7 @@ async def login():
     if not auth_manager:
         raise HTTPException(status_code=500, detail="Auth manager not initialized")
     
-    state = "random_state_token_for_csrf"
+    state = secrets.token_urlsafe(32)
     url, code_verifier = auth_manager.get_authorization_url(state)
     return RedirectResponse(url)
 
@@ -309,7 +306,7 @@ async def auth_callback(code: str, state: str):
             "picture": picture
         })
         
-        # Assuming frontend is served from root or same origin
+        # Redirect to frontend origin with user context as URL parameters
         return RedirectResponse(f"/?{params}")
         
     except Exception as e:
@@ -320,7 +317,6 @@ async def auth_callback(code: str, state: str):
 @app.get("/auth/logout")
 async def logout(request: Request):
     """Log out user and revoke tokens."""
-    # Since this is a simple GET for now, we don't have user_id easily available
-    # In a real app, you'd get this from a JWT cookie or session
-    # For now, frontend just clears local storage and calls this
+    # Session-based logout: clear server-side session state.
+    # Client is responsible for clearing localStorage credentials before redirecting here.
     return RedirectResponse("/")

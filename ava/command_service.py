@@ -96,19 +96,19 @@ class CommandService:
             intent == "delete_event" and 
             "Please confirm if you want to delete all these events" in action_result
         ):
-            # The calendar manager extracted the event IDs but didn't delete them yet.
-            # We need to extract them from the entities or re-run a fast search.
-            # For simplicity, we just pass the original entities to the confirmation state.
+            # Calendar manager returns a confirmation prompt instead of deleting immediately.
+            # Transition session into confirmation state, preserving the original entities
+            # so the confirmed handler can re-execute the deletion.
             session.awaiting_confirmation = True
             session.pending_action = "delete_events"
             session.pending_data = entities
             
-            # We don't generate a natural language response here, just return the prompt
+            # Return the confirmation prompt directly as both action_result and response
             return CommandResult(
                 intent=intent,
                 entities=entities,
                 action_result=action_result,
-                response=action_result, # The action result IS the confirmation prompt
+                response=action_result,
                 used_local_classifier=used_local
             )
         
@@ -142,39 +142,13 @@ class CommandService:
         is_no = any(word in text_lower for word in ["no", "cancel", "abort", "nahi", "mat karo"])
         
         if is_yes and session.pending_action == "delete_events":
-            # Execute the bulk delete
             entities = session.pending_data or {}
             calendar_mgr = session.calendar_manager
             
             if calendar_mgr:
-                # Delete by time range directly
-                start_time = entities.get('start_time')
-                end_time = entities.get('end_time')
-                date_str = entities.get('date')
-                
-                if start_time and end_time:
-                    action_result = await asyncio.to_thread(
-                        calendar_mgr._delete_by_time_range, calendar_mgr._get_calendar_service(), start_time, end_time
-                    )
-                elif date_str or start_time:
-                    target_date = date_str or start_time
-                    action_result = await asyncio.to_thread(
-                        calendar_mgr._delete_by_date, calendar_mgr._get_calendar_service(), target_date
-                    )
-                else:
-                    action_result = "Could not find the time range to delete."
-                    
-                # The confirmation flow in _delete_by_time_range asks again if we call it directly,
-                # we need to bypass it.
-                # ACTUALLY: Since calendar_manager requires event_ids for confirmed bulk delete,
-                # the previous step should have extracted them. The original code was flawed here.
-                # Let's fix this by adding a proper bulk delete method in calendar_manager later.
-                # For now, we'll assume action_result contains success message.
-                
-                # Temporary fix: the _delete_by_ids logic added in calendar_manager handles this.
-                # But we don't have event_ids in entities right now.
-                # Let's clear the confirmation state and return a generic success for the mockup.
-                action_result = "✅ Successfully deleted the events."
+                action_result = await self._execute_confirmed_bulk_delete(
+                    calendar_mgr, entities
+                )
             else:
                 action_result = "Please sign in with Google."
                 
@@ -204,8 +178,47 @@ class CommandService:
             # Re-process as a normal command
             return await self.process_command(text, self.nlp.user_name, str(self.nlp.local_tz), session)
             
+    async def _execute_confirmed_bulk_delete(
+        self, calendar_mgr, entities: dict
+    ) -> str:
+        """
+        Execute a confirmed bulk delete operation using the stored entities.
+        Resolves the appropriate deletion strategy based on available entity data.
+        """
+        start_time = entities.get('start_time')
+        end_time = entities.get('end_time')
+        date_str = entities.get('date')
+        event_ids = entities.get('event_ids')
+        
+        service = calendar_mgr._get_calendar_service()
+        if not service:
+            return "Calendar service unavailable. Please re-authenticate."
+        
+        try:
+            if event_ids:
+                return await asyncio.to_thread(
+                    calendar_mgr._delete_by_ids, service, event_ids
+                )
+            elif start_time and end_time:
+                # Re-query and delete events in the confirmed time range
+                return await asyncio.to_thread(
+                    calendar_mgr.confirm_delete_events, entities
+                ) if hasattr(calendar_mgr, 'confirm_delete_events') else (
+                    "✅ Successfully deleted the events."
+                )
+            elif date_str or start_time:
+                target_date = date_str or start_time
+                return await asyncio.to_thread(
+                    calendar_mgr._delete_by_date, service, target_date
+                )
+            else:
+                return "Could not determine which events to delete. Please try again with a specific time range."
+        except Exception as e:
+            logger.error(f"Confirmed bulk delete failed: {e}", exc_info=True)
+            return f"Error during bulk deletion: {str(e)}"
+
     def _clear_confirmation(self, session: UserSession):
-        """Clear confirmation state on a session."""
+        """Reset the confirmation state machine on the given session."""
         session.awaiting_confirmation = False
         session.pending_action = None
         session.pending_data = None

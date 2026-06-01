@@ -40,14 +40,9 @@ class AVA:
         
         logger.info("Initializing AVA...")
         
-        # In desktop mode, we might not have a Supabase connection yet
-        class DummyTokenStore:
-            def save(self, *args): pass
-            def load(self, *args): return None
-            def delete(self, *args): pass
-            def exists(self, *args): return False
-            
-        self.auth_manager = AuthManager(token_store=DummyTokenStore())
+        # In desktop mode, Supabase may not be configured — use null token store
+        from .token_store import NullTokenStore
+        self.auth_manager = AuthManager(token_store=NullTokenStore())
         self.voice_processor = VoiceProcessor()
         self.calendar_manager = CalendarManager(self.auth_manager)
         
