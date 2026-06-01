@@ -24,6 +24,7 @@ class TestCalendarManager(unittest.TestCase):
         
         # Setup AuthManager Mock
         self.mock_auth = AuthManager(self.mock_token_store)
+        self.mock_credentials.universe_domain = "googleapis.com"
         self.mock_auth.get_credentials = MagicMock(return_value=self.mock_credentials)
         
         # Setup Google API build mock

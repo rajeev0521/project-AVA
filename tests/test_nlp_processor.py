@@ -56,7 +56,7 @@ class TestNLPProcessor(unittest.TestCase):
         
         # We need to mock _gemini_extract since we don't want to actually run the chain
         with patch.object(self.processor, '_gemini_extract', return_value=('read_events', {}, '')) as mock_gemini:
-            intent, entities, response = self.processor.process_command("what's up")
+            intent, entities, response = self.processor.process_command("show my calendar")
             
             self.assertEqual(intent, 'read_events')
             mock_gemini.assert_called_once()
