@@ -113,7 +113,13 @@ class NLPProcessor:
             self.llm = ChatGoogleGenerativeAI(
                 model="gemini-2.0-flash",
                 google_api_key=api_key,
-                temperature=0.0
+                temperature=0.0,
+                safety_settings={
+                    "HARM_CATEGORY_DANGEROUS_CONTENT": "BLOCK_NONE",
+                    "HARM_CATEGORY_HARASSMENT": "BLOCK_NONE",
+                    "HARM_CATEGORY_HATE_SPEECH": "BLOCK_NONE",
+                    "HARM_CATEGORY_SEXUALLY_EXPLICIT": "BLOCK_NONE",
+                }
             )
         
         # Structured output parser for intent
