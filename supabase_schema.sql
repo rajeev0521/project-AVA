@@ -2,22 +2,6 @@
 -- Run this in your Supabase SQL Editor to set up the required tables.
 
 -- ══════════════════════════════════════════════════════════════════
--- Users Table — Multi-user support
--- ══════════════════════════════════════════════════════════════════
-CREATE TABLE IF NOT EXISTS users (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    email TEXT UNIQUE NOT NULL,
-    display_name TEXT,
-    google_calendar_token JSONB,
-    preferences JSONB DEFAULT '{}',
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Index for fast email lookups
-CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
-
--- ══════════════════════════════════════════════════════════════════
 -- Conversations Table — Conversation history for memory
 -- ══════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS conversations (
@@ -54,6 +38,23 @@ CREATE INDEX IF NOT EXISTS idx_entity_context_user
     ON entity_context(user_id, entity_type);
 
 -- ══════════════════════════════════════════════════════════════════
+-- User Tokens Table — OAuth credential storage per user
+-- NOTE: client_secret is intentionally NOT stored here.
+-- The application reconstructs it from the GOOGLE_CLIENT_SECRET
+-- environment variable at runtime. This prevents a database leak
+-- from exposing the OAuth application secret.
+-- ══════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS user_tokens (
+    user_id TEXT PRIMARY KEY,
+    token TEXT,
+    refresh_token TEXT,
+    token_uri TEXT,
+    client_id TEXT,
+    scopes TEXT[],
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ══════════════════════════════════════════════════════════════════
 -- Row Level Security (RLS) — Each user can only see their own data
 -- Note: Policies use current_setting('request.jwt.claim.sub') to match the user_id (Google sub claim).
 -- Service Role keys bypass these policies automatically.
@@ -85,22 +86,7 @@ CREATE POLICY "Users can manage own tokens" ON user_tokens
     USING (user_id = current_setting('request.jwt.claim.sub', true) OR current_user = 'service_role')
     WITH CHECK (user_id = current_setting('request.jwt.claim.sub', true) OR current_user = 'service_role');
 
--- ══════════════════════════════════════════════════════════════════
--- User Tokens Table — OAuth credential storage per user
--- ══════════════════════════════════════════════════════════════════
-CREATE TABLE IF NOT EXISTS user_tokens (
-    user_id TEXT PRIMARY KEY,
-    token TEXT,
-    refresh_token TEXT,
-    token_uri TEXT,
-    client_id TEXT,
-    client_secret TEXT,
-    scopes TEXT[],
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
 -- RLS: Only the service role can read/write tokens (never the frontend anon key)
-ALTER TABLE user_tokens ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "service role only" ON user_tokens
     FOR ALL
     USING (true);

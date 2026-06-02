@@ -30,7 +30,7 @@ class IntentClassifier:
     Uses TF-IDF features with character n-grams for language-agnostic matching.
     """
     
-    INTENTS = ["create_event", "read_events", "update_event", "delete_event"]
+    INTENTS = ["create_event", "read_events", "update_event", "delete_event", "general_conversation"]
     MODEL_FILENAME = "intent_model.pkl"
     
     def __init__(self, training_data_path: str = None, model_path: str = None):

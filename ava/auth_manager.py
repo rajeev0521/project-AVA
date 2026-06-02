@@ -4,13 +4,13 @@ Handles the full OAuth flow: authorization URL generation, code exchange,
 credential refresh, and per-user Calendar API service construction.
 """
 
-import os
 from typing import Optional, Dict, Any
 from google_auth_oauthlib.flow import Flow
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 
+from .config import config
 from .logger import get_logger
 
 logger = get_logger(__name__)
@@ -24,13 +24,17 @@ SCOPES = [
 
 
 def creds_to_dict(creds: Credentials) -> dict:
-    """Serialize a Credentials object to a dict suitable for storage."""
+    """Serialize a Credentials object to a dict suitable for storage.
+    
+    NOTE: client_secret is intentionally excluded — it must never be
+    stored per-user. The AuthManager reconstructs it from the environment
+    variable on token refresh.
+    """
     return {
         "token": creds.token,
         "refresh_token": creds.refresh_token,
         "token_uri": creds.token_uri,
         "client_id": creds.client_id,
-        "client_secret": creds.client_secret,
         "scopes": list(creds.scopes) if creds.scopes else list(SCOPES),
     }
 
@@ -55,9 +59,10 @@ class AuthManager:
             raise ValueError("token_store is required for AuthManager")
         self.token_store = token_store
         
-        self.client_id = os.getenv('GOOGLE_CLIENT_ID')
-        self.client_secret = os.getenv('GOOGLE_CLIENT_SECRET')
-        self.redirect_uri = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/auth/callback")
+        # Load client credentials from central config
+        self.client_id = config.google_client_id
+        self.client_secret = config.google_client_secret
+        self.redirect_uri = config.google_redirect_uri
         
         if not self.client_id or not self.client_secret:
             logger.warning("GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET missing. OAuth will fail if invoked.")
@@ -167,7 +172,7 @@ class AuthManager:
             refresh_token=token_data.get("refresh_token"),
             token_uri=token_data.get("token_uri", "https://oauth2.googleapis.com/token"),
             client_id=token_data.get("client_id", self.client_id),
-            client_secret=token_data.get("client_secret", self.client_secret),
+            client_secret=self.client_secret,  # Always from env, never from stored data
             scopes=token_data.get("scopes", SCOPES),
         )
 

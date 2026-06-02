@@ -1,3 +1,4 @@
+# pyrefly: ignore [missing-import]
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from datetime import datetime, timedelta
@@ -16,16 +17,24 @@ class CalendarManager:
         self.auth_manager = auth_manager
         self.user_id = user_id
         self.local_tz = get_localzone()
+        self._service = None  # Cached Google Calendar API service
     
     def _get_calendar_service(self):
-        """Get Google Calendar service for the current user."""
+        """Get Google Calendar service for the current user (cached per instance)."""
+        if self._service is not None:
+            return self._service
         try:
             if not self.auth_manager:
                 return None
-            return self.auth_manager.get_calendar_service(self.user_id)
+            self._service = self.auth_manager.get_calendar_service(self.user_id)
+            return self._service
         except ValueError as e:
             logger.warning(f"Failed to get calendar service: {e}")
             return None
+    
+    def invalidate_service(self):
+        """Invalidate the cached service (e.g., after credential refresh)."""
+        self._service = None
     
     def execute_command(self, intent: str, entities: Dict[str, Any]) -> str:
         """Execute calendar operation based on intent and entities."""
@@ -439,7 +448,12 @@ class CalendarManager:
         return f"✅ Successfully deleted '{title}'."
     
     def _delete_by_time_range(self, service, start_time: str, end_time: str) -> str:
-        """Delete all events in time range, with confirmation step."""
+        """Delete all events in time range, with confirmation step.
+        
+        Returns a confirmation message string that includes a trigger phrase
+        for the command_service to detect. The event_ids are stored in the
+        entities dict by the command_service's confirmation handler.
+        """
         try:
             events_result = service.events().list(
                 calendarId='primary',
@@ -456,12 +470,20 @@ class CalendarManager:
             event_ids = [event['id'] for event in events]
             event_titles = [event.get('summary', 'Untitled') for event in events]
 
-            # Request confirmation
-            id_list = ", ".join(f"ID: {eid}" for eid in event_ids)
-            return f"Found {len(event_ids)} events to delete: {', '.join(event_titles)}. {id_list}. Please confirm if you want to delete all these events."
+            # Store event_ids on this instance so the confirmation flow can retrieve them
+            self._pending_delete_event_ids = event_ids
+
+            # Request confirmation — the trigger phrase is detected by command_service
+            return f"Found {len(event_ids)} events to delete: {', '.join(event_titles)}. Please confirm if you want to delete all these events."
             
         except HttpError as e:
             return f"Error deleting events: {str(e)}"
+    
+    def get_pending_delete_event_ids(self) -> Optional[List[str]]:
+        """Retrieve and clear the event IDs pending bulk deletion."""
+        ids = getattr(self, '_pending_delete_event_ids', None)
+        self._pending_delete_event_ids = None
+        return ids
 
     def _delete_by_date(self, service, date_str: str) -> str:
         """Delete all events on a specific date."""
@@ -575,3 +597,4 @@ class CalendarManager:
             return "in the specified time range"
         except (ValueError, TypeError):
             return "in the specified time range"
+            

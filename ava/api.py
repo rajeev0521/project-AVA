@@ -1,4 +1,5 @@
 import os
+import asyncio
 import secrets
 from contextlib import asynccontextmanager
 from typing import Dict, Any, Optional
@@ -6,10 +7,12 @@ from typing import Dict, Any, Optional
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from supabase import create_client
 
+from .config import config
 from .logger import get_logger
 from .auth_manager import AuthManager
 from .token_store import SupabaseTokenStore
@@ -39,8 +42,8 @@ async def lifespan(app: FastAPI):
     logger.info("Starting AVA API server...")
     
     # 1. Initialize Supabase (Shared Client)
-    supabase_url = os.getenv("SUPABASE_URL")
-    supabase_key = os.getenv("SUPABASE_KEY")
+    supabase_url = config.supabase_url
+    supabase_key = config.supabase_key
     if not supabase_url or not supabase_key:
         logger.error("Supabase credentials missing! Features requiring persistence will fail.")
     else:
@@ -77,9 +80,13 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Configurable CORS origins
+# Set CORS_ORIGINS env var to a comma-separated list of allowed origins in production.
+CORS_ORIGINS = config.cors_origins
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -257,6 +264,10 @@ async def get_events(user_id: str):
 
 # --- OAuth Routes ---
 
+# Server-side storage for PKCE code verifiers, keyed by OAuth state token.
+# In production, use a short-TTL cache (Redis) instead of an in-memory dict.
+_oauth_states: Dict[str, str] = {}
+
 @app.get("/auth/login")
 async def login():
     """Start Google OAuth flow."""
@@ -265,6 +276,8 @@ async def login():
     
     state = secrets.token_urlsafe(32)
     url, code_verifier = auth_manager.get_authorization_url(state)
+    if code_verifier:
+        _oauth_states[state] = code_verifier
     return RedirectResponse(url)
 
 
@@ -275,8 +288,11 @@ async def auth_callback(code: str, state: str):
         raise HTTPException(status_code=500, detail="Auth manager not initialized")
     
     try:
-        # Exchange code for credentials
-        creds = auth_manager.exchange_code(code)
+        # Retrieve the PKCE code verifier stored during login
+        code_verifier = _oauth_states.pop(state, None)
+        
+        # Exchange code for credentials (with PKCE verifier if available)
+        creds = auth_manager.exchange_code(code, code_verifier=code_verifier)
         
         # Get user info (requires openid and email scopes)
         user_info = auth_manager.get_user_info(creds)
@@ -320,3 +336,12 @@ async def logout(request: Request):
     # Session-based logout: clear server-side session state.
     # Client is responsible for clearing localStorage credentials before redirecting here.
     return RedirectResponse("/")
+
+
+# --- Static Files ---
+# Mount MUST come after all route definitions to avoid shadowing API routes.
+# Serves frontend files (index.html, style.css, app.js) at the root /.
+import pathlib
+_frontend_dir = pathlib.Path(__file__).parent.parent / "frontend"
+if _frontend_dir.exists():
+    app.mount("/", StaticFiles(directory=str(_frontend_dir), html=True), name="frontend")

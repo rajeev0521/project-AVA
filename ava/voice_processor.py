@@ -8,7 +8,7 @@ import os
 import time
 from dotenv import load_dotenv
 
-from . import Speech_manager as speech_manager
+from . import speech_manager
 
 try:
     import speech_recognition as sr

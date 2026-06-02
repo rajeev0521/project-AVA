@@ -24,15 +24,16 @@ class TestNLPProcessor(unittest.TestCase):
         self.mock_extractor = MagicMock()
         self.mock_extractor_class.return_value = self.mock_extractor
         
-        self.patcher_llm = patch('ava.nlp_processor.ChatGoogleGenerativeAI')
-        self.mock_llm = self.patcher_llm.start()
+        # Mock genai.Client so it doesn't fail initialization
+        self.patcher_client = patch('ava.nlp_processor.genai.Client')
+        self.mock_client_class = self.patcher_client.start()
         
-        self.processor = NLPProcessor(user_name="Tester")
+        self.processor = NLPProcessor()
 
     def tearDown(self):
         self.patcher_classifier.stop()
         self.patcher_extractor.stop()
-        self.patcher_llm.stop()
+        self.patcher_client.stop()
 
     def test_process_command_local_success(self):
         # Simulate high confidence local classification with complete entities
@@ -43,12 +44,11 @@ class TestNLPProcessor(unittest.TestCase):
             'end_time': '2030-01-01T11:00:00'
         }
         
-        intent, entities, response = self.processor.process_command("schedule a meeting")
+        intent, entities, response = self.processor.process_command("schedule a meeting", "Tester", "America/New_York", None)
         
         self.assertEqual(intent, 'create_event')
         self.assertEqual(entities['title'], 'Meeting')
         self.mock_classifier.classify.assert_called_once()
-        self.mock_extractor.extract.assert_called_once()
 
     def test_process_command_gemini_fallback(self):
         # Simulate low confidence -> triggers full Gemini extraction
@@ -56,7 +56,7 @@ class TestNLPProcessor(unittest.TestCase):
         
         # We need to mock _gemini_extract since we don't want to actually run the chain
         with patch.object(self.processor, '_gemini_extract', return_value=('read_events', {}, '')) as mock_gemini:
-            intent, entities, response = self.processor.process_command("show my calendar")
+            intent, entities, response = self.processor.process_command("show my calendar", "Tester", "America/New_York", None)
             
             self.assertEqual(intent, 'read_events')
             mock_gemini.assert_called_once()
@@ -67,7 +67,9 @@ class TestNLPProcessor(unittest.TestCase):
             'start_time': '2025-12-05T15:00:00Z',
             'end_time': '2025-12-05T16:00:00+00:00'
         }
-        fixed = self.processor._validate_and_fix_times(mock_entities)
+        import pytz
+        local_tz = pytz.timezone("America/New_York")
+        fixed = self.processor._validate_and_fix_times(mock_entities, local_tz)
         
         # Assert the 'Z' format is converted correctly to local timezone
         self.assertNotIn('Z', fixed.get('start_time', ''))

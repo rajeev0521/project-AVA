@@ -42,14 +42,15 @@ class MemoryManager:
         # In-memory cache of recent turns (avoids DB round-trips)
         self._conversation_cache: List[Dict] = []
         self._entity_context: Dict[str, Any] = {}
-        
-        # Load recent history from DB on startup
-        self._load_session_history()
+        self._history_loaded = False
         
         logger.info(f"MemoryManager initialized for user={user_id}")
     
     def _load_session_history(self, limit: int = None):
         """Load recent conversation history from Supabase into cache."""
+        if self._history_loaded:
+            return
+            
         limit = limit or self.MAX_CONTEXT_TURNS
         try:
             response = (
@@ -80,6 +81,8 @@ class MemoryManager:
         except Exception as e:
             logger.warning(f"Failed to load session history: {e}")
             self._conversation_cache = []
+            
+        self._history_loaded = True
     
     def add_turn(self, user_input: str, intent: Optional[str], 
                  entities: Optional[Dict], response: str):
@@ -169,6 +172,8 @@ class MemoryManager:
         Returns:
             Formatted conversation history string
         """
+        self._load_session_history()
+        
         if not self._conversation_cache:
             return "No previous conversation."
         
@@ -214,6 +219,8 @@ class MemoryManager:
         Returns:
             Command with resolved references (or original if no resolution needed)
         """
+        self._load_session_history()
+        
         if not self._entity_context:
             return command
         

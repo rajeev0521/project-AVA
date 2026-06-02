@@ -55,8 +55,17 @@ document.addEventListener('DOMContentLoaded', () => {
         initKeyboardShortcuts();
         fetchApiStats();
         
-        // Refresh API stats every 30 seconds
-        setInterval(fetchApiStats, 30000);
+        // Refresh API stats every 30 seconds, but pause when tab is hidden
+        let statsInterval = setInterval(fetchApiStats, 30000);
+        
+        document.addEventListener("visibilitychange", () => {
+            if (document.hidden) {
+                clearInterval(statsInterval);
+            } else {
+                fetchApiStats();
+                statsInterval = setInterval(fetchApiStats, 30000);
+            }
+        });
     }
 });
 

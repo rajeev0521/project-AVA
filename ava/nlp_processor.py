@@ -9,16 +9,13 @@ import json
 import re
 import html
 from datetime import datetime
-from dotenv import load_dotenv
-from tzlocal import get_localzone
+from google import genai
+from google.genai import types
+from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any, Tuple
 
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.prompts import PromptTemplate
-from langchain_core.output_parsers import StrOutputParser
-from pydantic import BaseModel, Field
-
 from .logger import get_logger
+from .config import config
 
 try:
     from .intent_classifier import IntentClassifier
@@ -29,18 +26,29 @@ except ImportError:
 
 logger = get_logger(__name__)
 
+class CalendarEntities(BaseModel):
+    """Structured entities for calendar actions."""
+    title: Optional[str] = Field(default=None, description="The title of the event.")
+    start_time: Optional[str] = Field(default=None, description="Start date/time in ISO 8601 format.")
+    end_time: Optional[str] = Field(default=None, description="End date/time in ISO 8601 format.")
+    location: Optional[str] = Field(default=None, description="Location of the event.")
+    description: Optional[str] = Field(default=None, description="Description of the event.")
+    event_id: Optional[str] = Field(default=None, description="The specific calendar event ID.")
+    event_ids: Optional[list[str]] = Field(default=None, description="List of calendar event IDs for bulk operations.")
+    date: Optional[str] = Field(default=None, description="General date reference (e.g. today, tomorrow, specific date).")
+
 class CalendarIntent(BaseModel):
     """Structured output schema for Gemini intent extraction."""
     intent: Optional[str] = Field(
-        description="The intent of the user. One of: create_event, read_events, update_event, delete_event"
+        description="The intent of the user. One of: create_event, read_events, update_event, delete_event, general_conversation"
     )
-    entities: Dict[str, Any] = Field(
-        default_factory=dict,
-        description="Extracted entities like title, start_time, end_time (in ISO 8601 with timezone), event_id, etc."
+    entities: Optional[CalendarEntities] = Field(
+        default_factory=CalendarEntities,
+        description="Extracted entities like title, start_time, end_time, event_id, etc."
     )
     response_template: str = Field(
         default="",
-        description="A brief, natural confirmation phrase to say back to the user after the action is performed"
+        description="For calendar actions, a brief confirmation. For general_conversation, provide the complete helpful answer to the user's query here."
     )
 
 
@@ -88,96 +96,33 @@ def sanitize_user_input(text: str) -> str:
 
 
 class NLPProcessor:
-    def __init__(self, user_name=None, memory_manager=None, llm=None, user_timezone=None):
+    def __init__(self):
         """
-        Initialize NLP Processor.
-        
-        Args:
-            user_name: User's display name (from frontend/auth, not env).
-                       If None, defaults to a polite generic address.
-            memory_manager: Optional MemoryManager instance for conversational context
-            llm: Optional shared ChatGoogleGenerativeAI instance. If None, creates one.
-            user_timezone: User's timezone string from the client (e.g., 'Asia/Kolkata').
-                          Falls back to server timezone if not provided.
+        Initialize a stateless NLP Processor.
+        Thread-safe: context (user_name, timezone, memory) is passed per-request.
         """
-        # Configure env
-        load_dotenv()
-        api_key = os.getenv('GEMINI_API_KEY')
-        if not api_key:
-            raise ValueError("GEMINI_API_KEY not found in environment variables")
+        self.client = genai.Client(api_key=config.gemini_api_key)
         
-        # Use shared LLM instance if provided, otherwise create one
-        if llm is not None:
-            self.llm = llm
-        else:
-            self.llm = ChatGoogleGenerativeAI(
-                model="gemini-2.0-flash",
-                google_api_key=api_key,
-                temperature=0.0,
-                safety_settings={
-                    "HARM_CATEGORY_DANGEROUS_CONTENT": "BLOCK_NONE",
-                    "HARM_CATEGORY_HARASSMENT": "BLOCK_NONE",
-                    "HARM_CATEGORY_HATE_SPEECH": "BLOCK_NONE",
-                    "HARM_CATEGORY_SEXUALLY_EXPLICIT": "BLOCK_NONE",
-                }
-            )
-        
-        # Structured output parser for intent
-        self.intent_parser = self.llm.with_structured_output(CalendarIntent)
-        
-        # Use client timezone if provided, otherwise fall back to server timezone
-        if user_timezone:
-            import pytz
-            try:
-                self.local_tz = pytz.timezone(user_timezone)
-            except pytz.UnknownTimeZoneError:
-                logger.warning(f"Unknown timezone '{user_timezone}', falling back to server timezone")
-                self.local_tz = get_localzone()
-        else:
-            self.local_tz = get_localzone()
-
-        # Sanitize username to prevent reflected XSS in generated responses
-        self.user_name = sanitize_user_input(user_name) if user_name else "there"
-
-        # Memory manager for conversational context
-        self.memory = memory_manager
-
         # Load system prompt from file
         prompt_path = os.path.join(os.path.dirname(__file__), 'system_prompt.txt')
         with open(prompt_path, 'r') as f:
             self.system_prompt_template = f.read()
 
-        # Intent extraction prompt (includes conversation history slot)
-        self.intent_prompt = PromptTemplate.from_template(
-            "{system_prompt}\n\n"
-            "## Conversation History (most recent):\n{conversation_history}\n\n"
-            "## Response Settings:\n"
-            "- Respond in: {language}\n"
-            "- Tone: {tone}\n"
-            "- User's name: {user_name}\n\n"
-            "User command: {command}"
-        )
-
         # Local intent classifier (lazy loaded)
         self._intent_classifier = None
-        self._entity_extractor = None
         
-        logger.info(f"NLPProcessor initialized (model=gemini-2.0-flash, user={self.user_name}, tz={self.local_tz})")
-    
-    def set_user_name(self, name: str):
-        """Update username dynamically (called when user logs in / sets name from UI)."""
-        self.user_name = sanitize_user_input(name) if name else "there"
-        logger.info(f"Username updated to: {self.user_name}")
-    
-    def set_timezone(self, timezone_str: str):
-        """Update timezone from client-provided value."""
+        logger.info("Stateless NLPProcessor initialized (model=gemini-2.0-flash)")
+
+    def _get_local_tz(self, timezone_str: str):
+        """Convert string timezone to pytz object."""
         if timezone_str:
             import pytz
             try:
-                self.local_tz = pytz.timezone(timezone_str)
-                logger.info(f"Timezone updated to: {self.local_tz}")
+                return pytz.timezone(timezone_str)
             except pytz.UnknownTimeZoneError:
-                logger.warning(f"Unknown timezone '{timezone_str}', keeping current: {self.local_tz}")
+                pass
+        from tzlocal import get_localzone
+        return get_localzone()
     
     @staticmethod
     def detect_language(text: str) -> str:
@@ -211,9 +156,19 @@ class NLPProcessor:
     
     @staticmethod
     def is_greeting(command: str) -> bool:
-        """Check if the command is a greeting."""
-        cmd_lower = command.lower().strip()
-        return any(pattern in cmd_lower for pattern in _GREETING_PATTERNS)
+        """Check if the command is purely a greeting."""
+        import re
+        cmd_lower = re.sub(r'[^\w\s]', '', command.lower()).strip()
+        
+        # Strip common wake words and names
+        cmd_lower = re.sub(r'\b(ava|hey|hi|hello)\b', '', cmd_lower).strip()
+        
+        # If empty after removing name/greetings, it was just a greeting
+        if not cmd_lower:
+            return True
+            
+        # Or if the remaining text is exactly one of the greeting patterns
+        return cmd_lower in _GREETING_PATTERNS
     
     @staticmethod
     def is_off_topic(command: str) -> bool:
@@ -243,25 +198,25 @@ class NLPProcessor:
                 logger.warning(f"EntityExtractor init failed: {e}")
         return self._entity_extractor
         
-    def _get_system_prompt(self):
+    def _get_system_prompt(self, local_tz):
         """Formats the system prompt with dynamic data."""
-        now = datetime.now(self.local_tz)
+        now = datetime.now(local_tz)
         prompt = self.system_prompt_template
-        prompt = prompt.replace("{local_tz}", str(self.local_tz))
+        prompt = prompt.replace("{local_tz}", str(local_tz))
         prompt = prompt.replace("{current_date_time}", now.strftime('%Y-%m-%d %H:%M:%S %Z'))
         prompt = prompt.replace("{current_date}", now.strftime('%Y-%m-%d'))
         return prompt
 
-    def _get_conversation_history(self) -> str:
+    def _get_conversation_history(self, memory) -> str:
         """Get formatted conversation history from memory manager."""
-        if self.memory:
+        if memory:
             try:
-                return self.memory.get_context_prompt()
+                return memory.get_context_prompt()
             except Exception as e:
                 logger.warning(f"Failed to get conversation history: {e}")
         return "No previous conversation."
 
-    def process_command(self, command: str) -> Tuple[Optional[str], Dict[str, Any], str]:
+    def process_command(self, command: str, user_name: str, timezone_str: str, memory) -> Tuple[Optional[str], Dict[str, Any], str]:
         """
         Process natural language command. Returns (intent, entities, response_template).
         
@@ -270,20 +225,17 @@ class NLPProcessor:
         1. Local classifier (fast, ~5ms) if confidence >= 0.80
         2. Gemini API full extraction (slower, ~1-3s) for uncertain commands
         """
-        # Pre-filter: handle non-calendar intents locally without NLP processing
+        user_name = sanitize_user_input(user_name) if user_name else "there"
+        local_tz = self._get_local_tz(timezone_str)
+
+        # Pre-filter: handle pure greetings locally without NLP processing
         if self.is_greeting(command):
             detected_lang = self.detect_language(command)
             if detected_lang in ("Hindi", "Hinglish"):
-                greeting = f"Namaste {self.user_name}! Main AVA hoon, aapki AI calendar assistant. Aap mujhse apne schedule ke baare mein pooch sakte hain ya events create, update, delete kar sakte hain."
+                greeting = f"Namaste {user_name}! Main AVA hoon, aapki AI assistant. Main aapke calendar ko manage kar sakti hoon aur general sawalo ke jawab bhi de sakti hoon."
             else:
-                greeting = f"Hi {self.user_name}! I'm AVA, your AI calendar assistant. You can ask me to show your schedule, create events, update or delete them. How can I help you today?"
+                greeting = f"Hi {user_name}! I'm AVA, your AI assistant. I can help manage your calendar, or answer any general questions you have. How can I help today?"
             return None, {}, greeting
-        
-        if self.is_off_topic(command):
-            detected_lang = self.detect_language(command)
-            if detected_lang in ("Hindi", "Hinglish"):
-                return None, {}, f"Sorry {self.user_name}, main sirf calendar se related kaam kar sakti hoon. Kya aap koi event create, dekhna, update ya delete karna chahte hain?"
-            return None, {}, f"Sorry {self.user_name}, I can only help with calendar-related tasks. Would you like to create, view, update, or delete an event?"
 
         # Step 1: Detect language from user's input
         detected_language = self.detect_language(command)
@@ -291,9 +243,9 @@ class NLPProcessor:
 
         # Step 2: Resolve references if memory is available
         resolved_command = command
-        if self.memory:
+        if memory:
             try:
-                resolved_command = self.memory.resolve_reference(command)
+                resolved_command = memory.resolve_reference(command)
                 if resolved_command != command:
                     logger.info(f"Reference resolved: '{command}' → '{resolved_command}'")
             except Exception as e:
@@ -310,64 +262,88 @@ class NLPProcessor:
                 
                 if confidence >= 0.80:
                     # Intent is determined locally. Now try entity extraction.
-                    if self.entity_extractor is not None:
-                        entities = self.entity_extractor.extract(resolved_command, intent)
+                    # Instantiate EntityExtractor explicitly with the local_tz
+                    extractor = EntityExtractor(local_tz) if EntityExtractor is not None else None
+                    if extractor is not None:
+                        entities = extractor.extract(resolved_command, intent)
                     else:
                         entities = {}
                     
                     # Check if we have enough entities to execute
                     if self._can_execute_with_entities(intent, entities):
-                        response_template = self._local_response_template(intent, entities, detected_language)
+                        response_template = self._local_response_template(intent, entities, user_name, detected_language)
                         logger.info("Full local resolution — no API call")
                         return intent, entities, response_template
                     else:
                         # Partial local: we know the intent, ask Gemini only for entities
                         logger.info(f"Intent local ({confidence:.2f}), sending to Gemini for entity extraction only")
-                        return self._gemini_extract_entities_only(resolved_command, intent, detected_language, dynamic_tone)
+                        return self._gemini_extract_entities_only(resolved_command, intent, detected_language, dynamic_tone, user_name, local_tz, memory)
             except Exception as e:
                 logger.warning(f"Local classifier error: {e}")
 
         # Tier 2: Fall back to Gemini API for full extraction
-        return self._gemini_extract(resolved_command, detected_language)
+        return self._gemini_extract(resolved_command, detected_language, user_name, local_tz, memory)
 
-    def _gemini_extract(self, command: str, detected_language: str = "English") -> Tuple[Optional[str], Dict[str, Any], str]:
+    def _gemini_extract(self, command: str, detected_language: str, user_name: str, local_tz, memory) -> Tuple[Optional[str], Dict[str, Any], str]:
         """Extract intent and entities using Gemini API."""
         try:
-            system_prompt = self._get_system_prompt()
-            conversation_history = self._get_conversation_history()
+            system_prompt = self._get_system_prompt(local_tz)
+            conversation_history = self._get_conversation_history(memory)
             dynamic_tone = "friendly"
             
-            chain = self.intent_prompt | self.intent_parser
-            result = chain.invoke({
-                "system_prompt": system_prompt,
-                "conversation_history": conversation_history,
-                "command": command,
-                "language": detected_language,
-                "tone": dynamic_tone,
-                "user_name": self.user_name,
-            })
+            prompt_text = (
+                f"{system_prompt}\n\n"
+                f"## Conversation History (most recent):\n{conversation_history}\n\n"
+                f"## Response Settings:\n"
+                f"- Respond in: {detected_language}\n"
+                f"- Tone: {dynamic_tone}\n"
+                f"- User's name: {user_name}\n\n"
+                f"User command: {command}"
+            )
             
-            if not result or not result.intent:
+            response = self.client.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=prompt_text,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=CalendarIntent,
+                    temperature=0.0,
+                ),
+            )
+            
+            if not response.text:
+                logger.warning(f"Gemini returned empty response for: {command}")
+                return self._fallback_parsing(command, detected_language, local_tz)
+            
+            # Parse the JSON response into our model
+            try:
+                import json
+                result = CalendarIntent.model_validate_json(response.text)
+            except Exception as e:
+                logger.error(f"Failed to parse Gemini JSON: {e}")
+                return self._fallback_parsing(command, detected_language, local_tz)
+
+            if not result.intent:
                 logger.warning(f"Gemini returned no intent for: {command}")
-                return self._fallback_parsing(command, detected_language)
+                return self._fallback_parsing(command, detected_language, local_tz)
 
             intent = result.intent
-            entities = result.entities or {}
+            entities = result.entities.model_dump(exclude_none=True) if result.entities else {}
             response_template = result.response_template or ""
             
             # Set dynamic tone based on the extracted intent
             dynamic_tone = self.get_dynamic_tone(intent)
 
             # Validate and fix time formats
-            entities = self._validate_and_fix_times(entities)
+            entities = self._validate_and_fix_times(entities, local_tz)
 
             logger.info(f"Gemini extracted: intent={intent}, entities={list(entities.keys())}")
             return intent, entities, response_template
 
         except Exception as e:
             logger.error(f"Gemini extraction failed: {e}")
-            intent, entities = self._fallback_parsing(command, detected_language)
-            response_template = self._local_response_template(intent, entities, detected_language) if intent else ""
+            intent, entities, _ = self._fallback_parsing(command, detected_language, local_tz)
+            response_template = self._local_response_template(intent, entities, user_name, detected_language) if intent else ""
             return intent, entities, response_template
 
     def _entities_are_complete(self, intent: str, entities: Dict[str, Any]) -> bool:
@@ -405,27 +381,46 @@ class NLPProcessor:
         return False
 
     def _gemini_extract_entities_only(
-        self, command: str, local_intent: str, detected_language: str = "English", dynamic_tone: str = "friendly"
+        self, command: str, local_intent: str, detected_language: str, dynamic_tone: str, user_name: str, local_tz, memory
     ) -> Tuple[Optional[str], Dict[str, Any], str]:
         """
         Use Gemini only for entity extraction, preserving the locally classified intent.
         """
         try:
-            system_prompt = self._get_system_prompt()
-            conversation_history = self._get_conversation_history()
+            system_prompt = self._get_system_prompt(local_tz)
+            conversation_history = self._get_conversation_history(memory)
             
-            chain = self.intent_prompt | self.intent_parser
-            result = chain.invoke({
-                "system_prompt": system_prompt,
-                "conversation_history": conversation_history,
-                "command": command,
-                "language": detected_language,
-                "tone": dynamic_tone,
-                "user_name": self.user_name,
-            })
+            prompt_text = (
+                f"{system_prompt}\n\n"
+                f"## Conversation History (most recent):\n{conversation_history}\n\n"
+                f"## Response Settings:\n"
+                f"- Respond in: {detected_language}\n"
+                f"- Tone: {dynamic_tone}\n"
+                f"- User's name: {user_name}\n\n"
+                f"User command: {command}"
+            )
+            
+            response = self.client.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=prompt_text,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=CalendarIntent,
+                    temperature=0.0,
+                ),
+            )
+            
+            result = None
+            if response.text:
+                try:
+                    import json
+                    result = CalendarIntent.model_validate_json(response.text)
+                except Exception as e:
+                    logger.error(f"Failed to parse Gemini JSON: {e}")
             
             if result and result.entities:
-                entities = self._validate_and_fix_times(result.entities)
+                entities_dict = result.entities.model_dump(exclude_none=True) if hasattr(result.entities, 'model_dump') else result.entities.dict(exclude_none=True)
+                entities = self._validate_and_fix_times(entities_dict, local_tz)
             else:
                 entities = {}
             
@@ -437,14 +432,15 @@ class NLPProcessor:
         except Exception as e:
             logger.error(f"Gemini entity extraction failed: {e}")
             # Fall back to whatever entities the local extractor got
-            if self.entity_extractor is not None:
-                entities = self.entity_extractor.extract(command, local_intent)
+            extractor = EntityExtractor(local_tz) if EntityExtractor is not None else None
+            if extractor is not None:
+                entities = extractor.extract(command, local_intent)
             else:
                 entities = {}
-            response_template = self._local_response_template(local_intent, entities, detected_language)
+            response_template = self._local_response_template(local_intent, entities, user_name, detected_language)
             return local_intent, entities, response_template
 
-    def _local_response_template(self, intent: Optional[str], entities: Dict[str, Any], detected_language: str = "English") -> str:
+    def _local_response_template(self, intent: Optional[str], entities: Dict[str, Any], user_name: str, detected_language: str = "English") -> str:
         """Generate a response template locally without API call. Language-aware."""
         if not intent:
             if detected_language in ("Hindi", "Hinglish"):
@@ -452,7 +448,7 @@ class NLPProcessor:
             return "I couldn't understand your request."
         
         title = entities.get('title', 'your event')
-        name = self.user_name
+        name = user_name
         is_hindi = detected_language in ("Hindi", "Hinglish")
         
         if is_hindi:
@@ -471,7 +467,7 @@ class NLPProcessor:
             }
         return templates.get(intent, "Your request has been processed.")
 
-    def _validate_and_fix_times(self, entities):
+    def _validate_and_fix_times(self, entities, local_tz):
         """Validate and fix time formats to ensure they're in local timezone"""
         for time_key in ['start_time', 'end_time']:
             if time_key in entities:
@@ -490,10 +486,10 @@ class NLPProcessor:
                     dt = datetime.fromisoformat(time_str)
                     
                     # Apply the user's correct local timezone
-                    if hasattr(self.local_tz, 'localize'):
-                        dt = self.local_tz.localize(dt)
+                    if hasattr(local_tz, 'localize'):
+                        dt = local_tz.localize(dt)
                     else:
-                        dt = dt.replace(tzinfo=self.local_tz)
+                        dt = dt.replace(tzinfo=local_tz)
                     
                     # Convert back to ISO format with local timezone
                     entities[time_key] = dt.isoformat()
@@ -504,8 +500,8 @@ class NLPProcessor:
                     
         return entities
 
-    def _fallback_parsing(self, command, detected_language: str = "English"):
-        """Enhanced fallback parsing when LangChain extraction fails"""
+    def _fallback_parsing(self, command, detected_language: str, local_tz):
+        """Enhanced fallback parsing when Gemini extraction fails, using EntityExtractor."""
         command_lower = command.lower()
 
         # Determine intent
@@ -518,98 +514,33 @@ class NLPProcessor:
         elif any(word in command_lower for word in ['schedule', 'create', 'add', 'book', 'banao', 'lagao', 'set']):
             intent = 'create_event'
         else:
-            return None, {}
+            return None, {}, ""
 
-        # Extract basic entities for create_event
-        entities = {}
-        if intent == 'create_event':
-            # Extract title
-            if 'meeting' in command_lower:
-                entities['title'] = 'Meeting'
-            elif 'appointment' in command_lower:
-                entities['title'] = 'Appointment'
-            else:
+        extractor = EntityExtractor(local_tz) if EntityExtractor is not None else None
+        if extractor is not None:
+            entities = extractor.extract(command, intent)
+        else:
+            entities = {}
+            if intent == 'create_event':
                 entities['title'] = 'Event'
-
-            # Try to extract times with regex
-            time_patterns = [
-                r'(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)'
-            ]
-            
-            times_found = []
-            for pattern in time_patterns:
-                matches = re.findall(pattern, command_lower, re.IGNORECASE)
-                for match in matches:
-                    hour = int(match[0])
-                    minute = int(match[1]) if match[1] else 0
-                    ampm = match[2].lower()
-                    
-                    if ampm in ['pm', 'p.m.'] and hour != 12:
-                        hour += 12
-                    elif ampm in ['am', 'a.m.'] and hour == 12:
-                        hour = 0
-                    
-                    times_found.append((hour, minute))
-            
-            # Extract date
-            date_today = datetime.now(self.local_tz).date()
-            
-            # Look for date patterns
-            date_match = re.search(r'(\d{1,2})(?:st|nd|rd|th)?\s+(\w+)\s+(\d{4})', command_lower)
-            if date_match:
-                day = int(date_match.group(1))
-                month_name = date_match.group(2)
-                year = int(date_match.group(3))
-                
-                # Convert month name to number
-                month_names = {
-                    'january': 1, 'jan': 1, 'february': 2, 'feb': 2,
-                    'march': 3, 'mar': 3, 'april': 4, 'apr': 4,
-                    'may': 5, 'june': 6, 'jun': 6, 'july': 7, 'jul': 7,
-                    'august': 8, 'aug': 8, 'september': 9, 'sep': 9,
-                    'october': 10, 'oct': 10, 'november': 11, 'nov': 11,
-                    'december': 12, 'dec': 12
-                }
-                month = month_names.get(month_name.lower(), date_today.month)
-                event_date = datetime(year, month, day).date()
-            else:
-                event_date = date_today
-            
-            # Set times
-            if len(times_found) >= 2:
-                start_hour, start_minute = times_found[0]
-                end_hour, end_minute = times_found[1]
-                
-                start_dt = datetime.combine(event_date, datetime.min.time().replace(hour=start_hour, minute=start_minute)).replace(tzinfo=self.local_tz)
-                end_dt = datetime.combine(event_date, datetime.min.time().replace(hour=end_hour, minute=end_minute)).replace(tzinfo=self.local_tz)
-                
-                entities['start_time'] = start_dt.isoformat()
-                entities['end_time'] = end_dt.isoformat()
-            elif len(times_found) == 1:
-                start_hour, start_minute = times_found[0]
-                start_dt = datetime.combine(event_date, datetime.min.time().replace(hour=start_hour, minute=start_minute)).replace(tzinfo=self.local_tz)
-                end_dt = datetime.combine(event_date, datetime.min.time().replace(hour=start_hour + 1, minute=start_minute)).replace(tzinfo=self.local_tz)
-                
-                entities['start_time'] = start_dt.isoformat()
-                entities['end_time'] = end_dt.isoformat()
-            else:
                 # Default times
-                start_dt = datetime.combine(event_date, datetime.min.time().replace(hour=14, minute=0)).replace(tzinfo=self.local_tz)
-                end_dt = datetime.combine(event_date, datetime.min.time().replace(hour=15, minute=0)).replace(tzinfo=self.local_tz)
-                
+                event_date = datetime.now(local_tz).date()
+                start_dt = datetime.combine(event_date, datetime.min.time().replace(hour=14, minute=0)).replace(tzinfo=local_tz)
+                end_dt = datetime.combine(event_date, datetime.min.time().replace(hour=15, minute=0)).replace(tzinfo=local_tz)
                 entities['start_time'] = start_dt.isoformat()
                 entities['end_time'] = end_dt.isoformat()
 
-        return intent, entities
+        return intent, entities, ""
 
-    def generate_response(self, action_result: str, intent: str = None, 
-                          entities: dict = None, response_template: str = "") -> str:
+    def generate_response(self, intent: str, entities: dict, action_result: str, response_template: str, user_name: str, timezone_str: str, memory) -> str:
         """
         Generate a natural language response for the user.
         
         IMPORTANT: Never prepends a positive template when the action_result
         signals empty results, errors, or auth requirements.
         """
+        user_name = sanitize_user_input(user_name) if user_name else "there"
+        
         try:
             # Guard: detect negative/error/auth conditions in action_result
             result_lower = action_result.lower()
@@ -628,23 +559,23 @@ class NLPProcessor:
             # If we have a response template AND result is positive, use the template
             if response_template:
                 # Personalize the template
-                response = response_template.replace("{user_name}", self.user_name)
+                response = response_template.replace("{user_name}", user_name)
                 logger.info("Using pre-generated response template (no API call)")
                 if intent == "read_events":
                     return f"{response}\n\n{action_result}"
                 return response
             
             # For other cases, use local generation
-            return self._local_generate_response(action_result, intent, entities)
+            return self._local_generate_response(action_result, intent, entities, user_name)
             
         except Exception as e:
             logger.error(f"Error generating response: {e}")
             return "I've completed your request."
 
-    def _local_generate_response(self, action_result: str, intent: str = None, 
-                                  entities: dict = None) -> str:
+    def _local_generate_response(self, action_result: str, intent: str, 
+                                  entities: dict, user_name: str) -> str:
         """Generate response locally without any API call. Bilingual & tone-aware."""
-        name = self.user_name
+        name = user_name
         detected_language = self.detect_language(action_result) if action_result else "English"
         is_hindi = detected_language in ("Hindi", "Hinglish")
         

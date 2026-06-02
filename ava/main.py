@@ -12,6 +12,7 @@ from .voice_processor import VoiceProcessor
 from .calendar_manager import CalendarManager
 from .nlp_processor import NLPProcessor
 from .auth_manager import AuthManager
+from .config import config
 from .logger import get_logger
 
 logger = get_logger(__name__)
@@ -58,13 +59,15 @@ class AVA:
     def _init_memory(self):
         """Initialize Supabase memory manager if credentials are available."""
         try:
-            supabase_url = os.getenv("SUPABASE_URL")
-            supabase_key = os.getenv("SUPABASE_KEY")
+            supabase_url = config.supabase_url
+            supabase_key = config.supabase_key
             
             if supabase_url and supabase_key:
-                from memory_manager import MemoryManager
+                from .memory_manager import MemoryManager
+                from supabase import create_client
+                supabase_client = create_client(supabase_url, supabase_key)
                 user_id = os.getenv("AVA_USER_ID", "default")
-                memory = MemoryManager(supabase_url, supabase_key, user_id)
+                memory = MemoryManager(supabase_client, user_id)
                 logger.info("Supabase memory manager connected")
                 return memory
             else:
@@ -135,9 +138,9 @@ class AVA:
             # Check for bulk delete confirmation
             if (
                 intent == "delete_event" and
-                "Please confirm if you want to delete all these events." in action_result
+                "Please confirm if you want to delete all these events" in action_result
             ):
-                event_ids = self.calendar_manager.get_pending_delete_event_ids(entities)
+                event_ids = self.calendar_manager.get_pending_delete_event_ids()
                 self.session.awaiting_confirmation = True
                 self.session.pending_action = "delete_events"
                 self.session.pending_data = event_ids
@@ -167,7 +170,15 @@ class AVA:
         """Handle confirmation responses for pending actions."""
         if command.strip().lower() in ["yes", "confirm", "delete all", "proceed", "haan", "ha"]:
             if self.session.pending_action == "delete_events":
-                result = self.calendar_manager.confirm_delete_events(self.session.pending_data)
+                event_ids = self.session.pending_data
+                if event_ids:
+                    service = self.calendar_manager._get_calendar_service()
+                    if service:
+                        result = self.calendar_manager._delete_by_ids(service, event_ids)
+                    else:
+                        result = "Calendar service unavailable. Please re-authenticate."
+                else:
+                    result = "Could not determine which events to delete. Please try again."
                 self._clear_confirmation()
                 self.voice_processor.speak(result)
                 self.session.last_response_time = time.time()

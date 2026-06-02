@@ -53,11 +53,6 @@ class CommandService:
         Returns:
             CommandResult containing intent, entities, and formatted response.
         """
-        # Set per-request context on the shared NLP processor
-        self.nlp.set_user_name(user_name)
-        self.nlp.set_timezone(timezone_str)
-        self.nlp.memory = session.memory_manager
-        
         # 1. Check for pending confirmations (e.g., bulk delete)
         if session.awaiting_confirmation:
             return await self._handle_confirmation(text, session)
@@ -65,7 +60,7 @@ class CommandService:
         # 2. Extract Intent and Entities
         # This is CPU/Network bound, so run it in a thread pool
         intent, entities, response_template = await asyncio.to_thread(
-            self.nlp.process_command, text
+            self.nlp.process_command, text, user_name, timezone_str, session.memory_manager
         )
         
         # Track if we used local classifier vs Gemini (for analytics/UI)
@@ -78,6 +73,16 @@ class CommandService:
                 entities={},
                 action_result="",
                 response=response_template or "I'm sorry, I couldn't understand that.",
+                used_local_classifier=used_local
+            )
+        
+        if intent == "general_conversation":
+            # A generic question answered by Gemini
+            return CommandResult(
+                intent=intent,
+                entities=entities,
+                action_result="",
+                response=response_template,
                 used_local_classifier=used_local
             )
         
@@ -96,12 +101,16 @@ class CommandService:
             intent == "delete_event" and 
             "Please confirm if you want to delete all these events" in action_result
         ):
-            # Calendar manager returns a confirmation prompt instead of deleting immediately.
-            # Transition session into confirmation state, preserving the original entities
-            # so the confirmed handler can re-execute the deletion.
+            # Calendar manager stores the queried event IDs internally.
+            # Retrieve them and save in session for the confirmed handler.
+            event_ids = calendar_mgr.get_pending_delete_event_ids() if calendar_mgr else None
+            
             session.awaiting_confirmation = True
             session.pending_action = "delete_events"
-            session.pending_data = entities
+            session.pending_data = {
+                **entities,
+                "event_ids": event_ids or [],
+            }
             
             # Return the confirmation prompt directly as both action_result and response
             return CommandResult(
@@ -112,9 +121,9 @@ class CommandService:
                 used_local_classifier=used_local
             )
         
-        # 5. Generate Natural Language Response
+        # 6. Generate Response
         response = await asyncio.to_thread(
-            self.nlp.generate_response, action_result, intent, entities, response_template
+            self.nlp.generate_response, intent, entities, action_result, response_template, user_name, timezone_str, session.memory_manager
         )
         
         # 6. Update Memory (History & Context)
@@ -182,37 +191,23 @@ class CommandService:
         self, calendar_mgr, entities: dict
     ) -> str:
         """
-        Execute a confirmed bulk delete operation using the stored entities.
-        Resolves the appropriate deletion strategy based on available entity data.
+        Execute a confirmed bulk delete operation using the stored event IDs.
+        The event_ids were captured during the initial delete request and
+        stored in session.pending_data by the confirmation handler.
         """
-        start_time = entities.get('start_time')
-        end_time = entities.get('end_time')
-        date_str = entities.get('date')
         event_ids = entities.get('event_ids')
+        
+        if not event_ids:
+            return "Could not determine which events to delete. Please try again with a specific time range."
         
         service = calendar_mgr._get_calendar_service()
         if not service:
             return "Calendar service unavailable. Please re-authenticate."
         
         try:
-            if event_ids:
-                return await asyncio.to_thread(
-                    calendar_mgr._delete_by_ids, service, event_ids
-                )
-            elif start_time and end_time:
-                # Re-query and delete events in the confirmed time range
-                return await asyncio.to_thread(
-                    calendar_mgr.confirm_delete_events, entities
-                ) if hasattr(calendar_mgr, 'confirm_delete_events') else (
-                    "✅ Successfully deleted the events."
-                )
-            elif date_str or start_time:
-                target_date = date_str or start_time
-                return await asyncio.to_thread(
-                    calendar_mgr._delete_by_date, service, target_date
-                )
-            else:
-                return "Could not determine which events to delete. Please try again with a specific time range."
+            return await asyncio.to_thread(
+                calendar_mgr._delete_by_ids, service, event_ids
+            )
         except Exception as e:
             logger.error(f"Confirmed bulk delete failed: {e}", exc_info=True)
             return f"Error during bulk deletion: {str(e)}"
