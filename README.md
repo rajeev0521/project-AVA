@@ -1,68 +1,56 @@
-# AVA - Voice-Activated AI Calendar Assistant
+# AVA 2.0 - Generative AI Calendar Assistant
 
-AVA is a high-performance, voice-activated AI assistant designed to manage Google Calendar events using natural language. Operating both as a local desktop service and a cloud-ready web application, AVA integrates local offline machine learning, advanced audio signal processing, long-term semantic memory, and a modern glassmorphic web interface.
+AVA 2.0 is an advanced, high-performance calendar assistant powered by Google's Gemini 2.0 Flash. Rebuilt from the ground up to replace legacy regex and local machine learning models, AVA 2.0 leverages generative AI for deep semantic reasoning, multi-turn conversation state tracking, and seamless Google Calendar management.
 
 ---
 
 ## Key Technical Features
 
-### 1. High-Fidelity Frontend Dashboard
-*   **Modern Glassmorphic UI:** Built with pure HTML5, vanilla CSS3, and JavaScript, providing a smooth, responsive desktop control dashboard.
-*   **Live Web Chat & Logs:** Interactive terminal widget for sending manual queries and monitoring real-time system logs and engine states.
-*   **Calendar Integration:** Dynamic widget showing upcoming synchronized calendar schedules.
+### 1. Generative AI Core (Assistant Brain)
+*   **Gemini 2.0 Flash Integration:** The core orchestration engine relies on Gemini 2.0 Flash to inherently understand intents, extract temporal entities, and formulate responses without manual rule-based parsing.
+*   **Dynamic Tool Routing:** A modular `BaseTool` architecture dynamically exposes internal capabilities (e.g., Calendar CRUD, current time resolution) as structured JSON schemas to the Gemini function-calling API.
 
-### 2. Multi-Mode Architecture
-*   **Desktop Voice Loop:** Listens for the "Hey AVA" wake word, processes vocal input locally, and speaks responses asynchronously.
-*   **FastAPI REST Server:** Exposes calendar mutations, short-term memory search, and rate-limited speech synthesis for web client environments.
+### 2. Conversational State Management
+*   **Stateful Multi-Turn Context:** Integrates an in-memory `SessionManager` utilizing an LRU (Least Recently Used) cache and TTL (Time-To-Live) eviction policy.
+*   **Missing Field Resolution:** Retains the `genai.ChatSession` across discrete REST or WebSocket requests, enabling the assistant to ask follow-up questions when a user provides incomplete calendar instructions.
 
-### 3. Asynchronous & Resilient Speech Engine
-*   **Threaded Speech Playback:** Non-blocking speech synthesis via pyttsx3 executed on daemon background threads, preventing interface lockups.
-*   **Lazy Engine Loading:** Dynamic TTS engine initialization to prevent system crashes when host devices lack primary soundcards or audio drivers during application startup.
+### 3. Advanced NLP Temporal Parsing
+*   **LLM-Driven Time Extraction:** The `NLTimeParser` delegates complex natural language date and time extraction to the LLM, returning precise, standardized ISO-8601 timestamps without fragile regex configurations.
 
-### 4. Local Offline Intent & Entity Processing
-*   **SVM Intent Classification:** Uses a local Support Vector Machine (SVM) and TF-IDF vectorizer trained on predefined patterns, completing classification in milliseconds without remote LLM API calls.
-*   **Pattern-Based Entity Extraction:** Local regular expression parsing for temporal ranges, dates, times, and calendar actions, conserving API quota and maximizing response speeds.
+### 4. Comprehensive Calendar Integrations
+*   **Full CRUD Capabilities:** Modularized tools for creating, reading, updating, and deleting Google Calendar events directly through natural language instructions.
 
-### 5. Advanced Audio Pipelines
-*   **One-Time Noise Calibration:** Performs a single ambient audio calibration at startup, eliminating the latency of calibrating before every command.
-*   **Whisper Optimization:** Loads the local OpenAI Whisper model once upon application startup instead of reloading it per transcription, reducing command execution times.
-
-### 6. Relational & Semantic Memory
-*   **Supabase Database Syncing:** Syncs events, user states, and conversational contexts to a PostgreSQL instance in Supabase.
-*   **Bilingual Hinglish/English Generation:** Pre-generates responses within single LLM loops and provides local fallback prompts to support Hinglish and English context generation.
+### 5. Dockerized Deployment
+*   **Reproducible Ecosystem:** Fully containerized architecture using `docker-compose`, providing consistent local development environments and simplified cloud deployment.
 
 ---
 
 ## Technical Architecture
 
-```
+```text
 project-AVA/
 ├── ava/
-│   ├── __init__.py            # Module initialization and exports
-│   ├── api.py                 # FastAPI service layer and API routes
-│   ├── auth_manager.py        # Google OAuth 2.0 and token management
-│   ├── calendar_manager.py    # Google Calendar API event mutations
-│   ├── entity_extractor.py    # Local regex-based entity parsing
-│   ├── intent_classifier.py   # Local SVM-based intent classification model
+│   ├── api/                   # FastAPI service layer and API routes
+│   ├── brain/                 # LLM Orchestrator and Tool Routing
+│   │   ├── assistant_brain.py
+│   │   └── tool_router.py
+│   ├── calendar/              # Google Calendar OAuth and API integrations
+│   ├── conversation/          # Session management and NLP parsers
+│   │   ├── state_manager.py
+│   │   └── time_parser.py
+│   ├── tools/                 # Extensible tool plugins for the Brain
+│   │   ├── base_tool.py
+│   │   ├── calendar_tool.py
+│   │   └── time_tool.py
 │   ├── logger.py              # Structured, rotating file/console logging
 │   ├── main.py                # Command-Line loop and entry point
-│   ├── memory_manager.py      # Thread-safe database state and memory syncing
-│   ├── nlp_processor.py       # Bilingual fallbacks and LLM integration
-│   ├── rate_limiter.py        # Token-bucket API protection middleware
-│   ├── Speech_manager.py      # Threaded text-to-speech engine
-│   ├── system_prompt.txt      # System instructions for LLM contexts
-│   ├── training_data.json     # Local intent classification training patterns
-│   └── voice_processor.py     # Ambient-calibrated Whisper and wake loop
-├── frontend/
-│   ├── index.html             # Dashboard markup structure
-│   ├── style.css              # Custom glassmorphic stylesheet
-│   └── app.js                 # Event listeners, chat logic, and log streaming
-├── tests/                     # Unit test suites for primary modules
-├── Dockerfile                 # Multi-stage optimized Docker deployment specification
+│   └── rate_limiter.py        # Token-bucket API protection middleware
+├── docker/
+│   ├── Dockerfile             # Multi-stage optimized Docker deployment specification
+│   └── docker-compose.yml     # Compose file for service orchestration
+├── tests/                     # Automated unit and integration test suites
 ├── pyproject.toml             # Modern packaging and tool configuration
-├── render.yaml                # Deploy specification for cloud hosting
 ├── requirements.txt           # Consolidated API dependencies
-├── supabase_schema.sql        # Database initialization schema
 └── .env.example               # Template environment configuration
 ```
 
@@ -70,11 +58,10 @@ project-AVA/
 
 ## Prerequisites
 
-*   Python 3.10 or higher
-*   Google Cloud Platform project with the **Google Calendar API** enabled
-*   Google Calendar OAuth 2.0 Credentials
-*   Supabase Account and Database URL
-*   Google Gemini API Key
+*   **Docker and Docker Compose:** Required for running the containerized application.
+*   **Google Gemini API Key:** Required for the Generative AI orchestration.
+*   **Google Cloud Platform Project:** Must have the Google Calendar API enabled with OAuth 2.0 Credentials.
+*   **Supabase Account:** Required for extended database state and memory persistence.
 
 ---
 
@@ -87,20 +74,18 @@ cd project-AVA
 ```
 
 ### 2. Configure Environment Variables
-Create a `.env` file at the root of the repository by copying the example:
+Create a `.env` file at the root of the repository by copying the template:
 ```bash
 cp .env.example .env
 ```
 Fill in the details inside the `.env` file:
 *   `GEMINI_API_KEY`: Your Gemini API access key.
-*   `GOOGLE_APPLICATION_CREDENTIALS`: Path to your Google service account credentials file (e.g., `service_account.json`).
+*   `GOOGLE_APPLICATION_CREDENTIALS`: Path to your Google service account credentials file.
 *   `SUPABASE_URL` & `SUPABASE_KEY`: Database endpoint details.
 *   `GOOGLE_CLIENT_ID` & `GOOGLE_CLIENT_SECRET`: OAuth keys for multi-user web dashboard authentication.
 
-### 3. Initialize Database
-Execute the SQL commands in `supabase_schema.sql` inside your Supabase SQL editor to create the required relational structures and table indexes.
-
-### 4. Install Dependencies
+### 3. Install Dependencies (Local Development)
+If you prefer running tests or running the application outside of Docker:
 ```bash
 pip install -r requirements.txt
 ```
@@ -109,39 +94,17 @@ pip install -r requirements.txt
 
 ## Running the Application
 
-### 1. Backend REST Server
-Run the FastAPI gateway service locally using Uvicorn:
+### 1. Docker Environment (Recommended)
+Build and run the application stack using Docker Compose:
 ```bash
-uvicorn ava.api:app --host 127.0.0.1 --port 8000 --reload
+docker-compose -f docker/docker-compose.yml up --build
 ```
-Access the interactive API documentation at `http://127.0.0.1:8000/docs`.
+This will start the FastAPI backend and any associated services defined in the configuration. Access the interactive API documentation at `http://localhost:8000/docs`.
 
-### 2. Desktop Vocal Loop
-To run AVA in local desktop voice mode with hotword detection and real-time mic tracking:
+### 2. Running Automated Tests
+To run the test suite within the Docker container:
 ```bash
-python -m ava.main
-```
-Speak the wake word **"Hey AVA"** to prompt the assistant.
-
-### 3. Web Dashboard
-Serve the `frontend/` directory using any local web server (e.g., Live Server, Nginx, or Python's HTTP module):
-```bash
-python -m http.server 3000
-```
-Open `http://localhost:3000` in your browser to interact with the glassmorphic console.
-
----
-
-## Docker Deployment
-
-Build the container image using the optimized Dockerfile:
-```bash
-docker build -t ava-assistant .
-```
-
-Run the container instance locally:
-```bash
-docker run -d -p 8000:8000 --env-file .env ava-assistant
+docker-compose -f docker/docker-compose.yml run ava pytest tests/unit/
 ```
 
 ---
