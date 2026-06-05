@@ -32,4 +32,4 @@ jobs:
         export GEMINI_API_KEY="fake_key"
         export SUPABASE_URL="https://fake.supabase.co"
         export SUPABASE_KEY="fake_key"
-        python -m unittest discover tests
+        pytest tests/unit/
