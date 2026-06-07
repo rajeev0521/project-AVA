@@ -40,13 +40,27 @@ def get_logger(name: str, level: str = "INFO") -> logging.Logger:
     console_handler.setFormatter(formatter)
     logger.addHandler(console_handler)
     
+    import json
+    class JSONFormatter(logging.Formatter):
+        def format(self, record):
+            log_record = {
+                "timestamp": self.formatTime(record, self.datefmt),
+                "level": record.levelname,
+                "logger": record.name,
+                "message": record.getMessage(),
+            }
+            if record.exc_info:
+                log_record["exception"] = self.formatException(record.exc_info)
+            return json.dumps(log_record)
+
     # File handler for persistent logs
     log_dir = Path(__file__).parent.parent / "logs"
     log_dir.mkdir(exist_ok=True)
     
-    file_handler = logging.FileHandler(log_dir / "ava.log", encoding="utf-8")
+    file_handler = logging.FileHandler(log_dir / "ava.json.log", encoding="utf-8")
     file_handler.setLevel(logging.DEBUG)
-    file_handler.setFormatter(formatter)
+    file_handler.setFormatter(JSONFormatter())
     logger.addHandler(file_handler)
     
     return logger
+

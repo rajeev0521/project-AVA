@@ -342,10 +342,11 @@ function handleResponse(data) {
     if (data.intent) meta.intent = data.intent;
     if (data.used_local_classifier) meta.local = true;
     
-    addMessage(data.response, 'ava', meta);
+    const responseText = data.text || data.response || "";
+    addMessage(responseText, 'ava', meta);
     
     // Speak the response
-    speak(data.response);
+    speak(responseText);
     
     // Update API stats
     fetchApiStats();
