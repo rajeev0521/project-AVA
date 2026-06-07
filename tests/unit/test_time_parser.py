@@ -1,12 +1,11 @@
 import pytest
-import google.generativeai
 from unittest.mock import patch, MagicMock
 from datetime import datetime
 from ava.conversation.time_parser import NLTimeParser
 
 @pytest.mark.asyncio
 async def test_nl_time_parser_success():
-    with patch("google.generativeai.GenerativeModel") as MockModel:
+    with patch("ava.conversation.time_parser.genai.GenerativeModel") as MockModel:
         mock_instance = MockModel.return_value
         mock_response = MagicMock()
         mock_response.text = '{"start_time": "2026-06-04T14:00:00", "end_time": null}'
