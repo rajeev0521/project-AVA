@@ -7,12 +7,13 @@ class NLTimeParser:
     """Parses natural language time expressions into structured ISO datetimes using Gemini."""
     
     def __init__(self):
-        api_key = os.environ.get("GEMINI_API_KEY")
-        if api_key:
+        from ava.config import config
+        api_key = config.gemini_api_key
+        if api_key and api_key != "missing":
             genai.configure(api_key=api_key)
             
         self.model = genai.GenerativeModel(
-            model_name="gemini-2.0-flash",
+            model_name="gemini-2.5-flash",
             system_instruction=(
                 "Extract date and time from the natural language phrase. "
                 "Respond ONLY with a JSON object in this exact format: "
