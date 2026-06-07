@@ -1,4 +1,5 @@
 import pytest
+import google.generativeai
 from unittest.mock import patch, MagicMock
 from datetime import datetime
 from ava.conversation.time_parser import NLTimeParser
