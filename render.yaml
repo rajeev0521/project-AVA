@@ -5,7 +5,7 @@ services:
     plan: free
     region: oregon
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn ava.api:app --host 0.0.0.0 --port $PORT
+    startCommand: uvicorn ava.api.server:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: PYTHON_VERSION
         value: 3.10.14
@@ -20,6 +20,14 @@ services:
       - key: GOOGLE_CLIENT_SECRET
         sync: false
       - key: SESSION_SECRET_KEY
+        sync: false
+      - key: GOOGLE_REDIRECT_URI
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: UPSTASH_REDIS_REST_URL
+        sync: false
+      - key: UPSTASH_REDIS_REST_TOKEN
         sync: false
     healthCheckPath: /health
     autoDeploy: true
