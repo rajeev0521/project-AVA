@@ -330,10 +330,12 @@ class TestCheckConflictsTool:
     @pytest.mark.asyncio
     async def test_no_conflicts(self):
         mgr = make_mock_calendar_manager(events=[])
-        svc = SchedulerService(mgr)
-        tool = CheckConflictsTool(svc)
+        session = MagicMock()
+        session.calendar_manager = mgr
+        tool = CheckConflictsTool()
 
         result = await tool.execute(
+            session=session,
             start_time="2026-06-05T14:00:00+05:30",
             end_time="2026-06-05T15:00:00+05:30",
         )
@@ -345,10 +347,12 @@ class TestCheckConflictsTool:
     async def test_with_conflicts(self):
         events = [make_gcal_event("e1", "Busy", dt(14), dt(15))]
         mgr = make_mock_calendar_manager(events)
-        svc = SchedulerService(mgr)
-        tool = CheckConflictsTool(svc)
+        session = MagicMock()
+        session.calendar_manager = mgr
+        tool = CheckConflictsTool()
 
         result = await tool.execute(
+            session=session,
             start_time="2026-06-05T14:30:00+05:30",
             end_time="2026-06-05T15:30:00+05:30",
         )
@@ -359,17 +363,16 @@ class TestCheckConflictsTool:
     @pytest.mark.asyncio
     async def test_invalid_datetime(self):
         mgr = make_mock_calendar_manager()
-        svc = SchedulerService(mgr)
-        tool = CheckConflictsTool(svc)
+        session = MagicMock()
+        session.calendar_manager = mgr
+        tool = CheckConflictsTool()
 
-        result = await tool.execute(start_time="not-a-date", end_time="also-bad")
+        result = await tool.execute(session=session, start_time="not-a-date", end_time="also-bad")
         assert "error" in result
 
     @pytest.mark.asyncio
     async def test_tool_schema(self):
-        mgr = make_mock_calendar_manager()
-        svc = SchedulerService(mgr)
-        tool = CheckConflictsTool(svc)
+        tool = CheckConflictsTool()
 
         assert tool.name == "check_calendar_conflicts"
         assert "conflict" in tool.description.lower()
@@ -381,10 +384,11 @@ class TestFindFreeSlotsTool:
     @pytest.mark.asyncio
     async def test_finds_slots(self):
         mgr = make_mock_calendar_manager(events=[])
-        svc = SchedulerService(mgr)
-        tool = FindFreeSlotsTool(svc)
+        session = MagicMock()
+        session.calendar_manager = mgr
+        tool = FindFreeSlotsTool()
 
-        result = await tool.execute(date="2026-06-05T09:00:00+05:30")
+        result = await tool.execute(session=session, date="2026-06-05T09:00:00+05:30")
 
         assert result["slots_found"] >= 1
         assert len(result["free_slots"]) >= 1
@@ -393,20 +397,19 @@ class TestFindFreeSlotsTool:
     async def test_no_slots(self):
         events = [make_gcal_event("e1", "All Day", dt(9), dt(21))]
         mgr = make_mock_calendar_manager(events)
-        svc = SchedulerService(mgr)
-        tool = FindFreeSlotsTool(svc)
+        session = MagicMock()
+        session.calendar_manager = mgr
+        tool = FindFreeSlotsTool()
 
         result = await tool.execute(
-            date="2026-06-05T09:00:00+05:30", duration_minutes=30
+            session=session, date="2026-06-05T09:00:00+05:30", duration_minutes=30
         )
 
         assert result["slots_found"] == 0
 
     @pytest.mark.asyncio
     async def test_tool_schema(self):
-        mgr = make_mock_calendar_manager()
-        svc = SchedulerService(mgr)
-        tool = FindFreeSlotsTool(svc)
+        tool = FindFreeSlotsTool()
 
         assert tool.name == "find_free_slots"
         assert "date" in tool.parameters["properties"]
@@ -418,10 +421,12 @@ class TestSuggestAlternativesTool:
     async def test_suggests_alternatives(self):
         events = [make_gcal_event("e1", "Busy", dt(14), dt(15))]
         mgr = make_mock_calendar_manager(events)
-        svc = SchedulerService(mgr)
-        tool = SuggestAlternativesTool(svc)
+        session = MagicMock()
+        session.calendar_manager = mgr
+        tool = SuggestAlternativesTool()
 
         result = await tool.execute(
+            session=session,
             conflicting_start="2026-06-05T14:00:00+05:30",
             duration_minutes=60,
         )
@@ -431,19 +436,18 @@ class TestSuggestAlternativesTool:
     @pytest.mark.asyncio
     async def test_invalid_datetime(self):
         mgr = make_mock_calendar_manager()
-        svc = SchedulerService(mgr)
-        tool = SuggestAlternativesTool(svc)
+        session = MagicMock()
+        session.calendar_manager = mgr
+        tool = SuggestAlternativesTool()
 
         result = await tool.execute(
-            conflicting_start="garbage", duration_minutes=30
+            session=session, conflicting_start="garbage", duration_minutes=30
         )
         assert "error" in result
 
     @pytest.mark.asyncio
     async def test_tool_schema(self):
-        mgr = make_mock_calendar_manager()
-        svc = SchedulerService(mgr)
-        tool = SuggestAlternativesTool(svc)
+        tool = SuggestAlternativesTool()
 
         assert tool.name == "suggest_alternative_slots"
         assert "conflicting_start" in tool.parameters["properties"]

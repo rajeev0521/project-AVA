@@ -1,5 +1,6 @@
 import pytest
 from typing import Any, Dict
+from unittest.mock import MagicMock
 from ava.brain.tool_router import ToolRouter
 from ava.tools.base_tool import BaseTool
 
@@ -25,7 +26,8 @@ async def test_tool_router_executes_tool():
     router = ToolRouter([tool])
     
     # Test execution
-    result = await router.execute_tool("get_current_time", {})
+    session = MagicMock()
+    result = await router.execute_tool("get_current_time", session, {})
     assert result == "2026-06-03T10:00:00"
     
     # Test schemas
