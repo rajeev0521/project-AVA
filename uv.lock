@@ -118,11 +118,13 @@ dependencies = [
     { name = "scikit-learn", version = "1.8.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "supabase" },
     { name = "tzlocal" },
+    { name = "upstash-redis" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
 [package.optional-dependencies]
 desktop = [
+    { name = "elevenlabs" },
     { name = "openai-whisper" },
     { name = "openwakeword" },
     { name = "pyaudio" },
@@ -142,6 +144,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "elevenlabs", marker = "extra == 'desktop'", specifier = ">=1.0.0" },
     { name = "fastapi", specifier = ">=0.104.0" },
     { name = "google-api-python-client", specifier = ">=2.86.0" },
     { name = "google-auth", specifier = ">=2.0.0" },
@@ -170,6 +173,7 @@ requires-dist = [
     { name = "speechrecognition", marker = "extra == 'desktop'", specifier = ">=3.10.0" },
     { name = "supabase", specifier = ">=2.0.0" },
     { name = "tzlocal" },
+    { name = "upstash-redis", specifier = ">=1.2.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.24.0" },
 ]
 provides-extras = ["desktop", "dev"]
@@ -685,6 +689,23 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/fc/f8/98eea607f65de6527f8a2e8885fc8015d3e6f5775df186e443e0964a11c3/distro-1.9.0.tar.gz", hash = "sha256:2fa77c6fd8940f116ee1d6b94a2f90b13b5ea8d019b98bc8bafdcabcdd9bdbed", size = 60722, upload-time = "2023-12-24T09:54:32.31Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/12/b3/231ffd4ab1fc9d679809f356cebee130ac7daa00d6d6f3206dd4fd137e9e/distro-1.9.0-py3-none-any.whl", hash = "sha256:7bffd925d65168f85027d8da9af6bddab658135b840670a223589bc0c8ef02b2", size = 20277, upload-time = "2023-12-24T09:54:30.421Z" },
+]
+
+[[package]]
+name = "elevenlabs"
+version = "2.51.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "httpx" },
+    { name = "pydantic" },
+    { name = "pydantic-core" },
+    { name = "requests" },
+    { name = "typing-extensions" },
+    { name = "websockets" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/55/8b/4ead2bb7c63c7e8bc81a47e23ef1e8463db2bd204211d5e45ecaea755b7b/elevenlabs-2.51.0.tar.gz", hash = "sha256:8c7df290cda9e5f76efa68d6e645f68f2f997874ef228492d02c4f9afb232904", size = 627230, upload-time = "2026-06-02T11:36:03.209Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/23/46/919e3a92c8e62ae41d0033257196e017fd7eb2e6b641b7ad6e32da4580b9/elevenlabs-2.51.0-py3-none-any.whl", hash = "sha256:66a419d384bf3a4ee47a203be91af4c10a33622c93088fb5ad691ebae902a49e", size = 1699598, upload-time = "2026-06-02T11:36:01.166Z" },
 ]
 
 [[package]]
@@ -6626,6 +6647,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/8b/2e/c14812d3d4d9cd1773c6be938f89e5735a1f11a9f184ac3639b93cef35d5/tzlocal-5.3.1.tar.gz", hash = "sha256:cceffc7edecefea1f595541dbd6e990cb1ea3d19bf01b2809f362a03dd7921fd", size = 30761, upload-time = "2025-03-05T21:17:41.549Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c2/14/e2a54fabd4f08cd7af1c07030603c3356b74da07f7cc056e600436edfa17/tzlocal-5.3.1-py3-none-any.whl", hash = "sha256:eb1a66c3ef5847adf7a834f1be0800581b683b5608e74f86ecbcef8ab91bb85d", size = 18026, upload-time = "2025-03-05T21:17:39.857Z" },
+]
+
+[[package]]
+name = "upstash-redis"
+version = "1.7.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "httpx" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/bb/ec/a2d5027239be97421f0bb26ca74b7be3f5597e4222431c5bb6ccc7c0f018/upstash_redis-1.7.0.tar.gz", hash = "sha256:19b46dff2d81b89da5cbfb23a38232f7ca3b9ba441b22a1df766c64972d936d1", size = 47336, upload-time = "2026-03-18T14:17:46.874Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/20/00/d4aede377301a66a751c8c240c1d989124afb42ee8a201d7f7406306dde3/upstash_redis-1.7.0-py3-none-any.whl", hash = "sha256:6c17b4cd1f88bd0d34d978b9cf13041032482f7dfb4cdf8e00f6f6277db0006a", size = 49746, upload-time = "2026-03-18T14:17:45.955Z" },
 ]
 
 [[package]]
