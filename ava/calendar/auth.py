@@ -10,8 +10,8 @@ from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 
-from .config import config
-from .logger import get_logger
+from ava.config import config
+from ava.logger import get_logger
 
 logger = get_logger(__name__)
 

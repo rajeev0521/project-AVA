@@ -8,7 +8,7 @@ import os
 import time
 from dotenv import load_dotenv
 
-from . import speech_manager
+from . import text_to_speech as speech_manager
 
 try:
     import speech_recognition as sr
@@ -155,6 +155,45 @@ class VoiceProcessor:
                 return None
     
     def speak(self, text, blocking=True):
-        """Convert text to speech using speech_manager"""
+        """Convert text to speech using speech_manager with interruption support"""
         logger.info(f"AVA: {text}")
-        speech_manager.speak(text, blocking=blocking)
+        if not blocking:
+            speech_manager.speak(text, blocking=False)
+            return
+            
+        speech_manager.speak(text, blocking=False)
+        
+        # Wait a tiny bit for the engine to start and set is_speaking=True
+        time.sleep(0.1)
+        
+        # While speaking, listen for interruption
+        with sr.Microphone() as source:
+            while speech_manager.is_speaking():
+                try:
+                    # Listen in short bursts
+                    audio = self.recognizer.listen(source, timeout=0.5, phrase_time_limit=2)
+                    
+                    # Quick transcription
+                    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+                        tmp.write(audio.get_wav_data())
+                        tmp_path = tmp.name
+                    
+                    result = self.whisper_model.transcribe(tmp_path, fp16=False)
+                    os.unlink(tmp_path)
+                    
+                    cmd = result["text"].strip().lower()
+                    import re
+                    cmd = re.sub(r'[^\w\s]', '', cmd)
+                    
+                    if "stop" in cmd or "quiet" in cmd or "shut up" in cmd or "cancel" in cmd:
+                        logger.info(f"Interruption detected: '{cmd}'")
+                        speech_manager.stop_speaking()
+                        break
+                except sr.WaitTimeoutError:
+                    continue
+                except Exception as e:
+                    continue
+                    
+        # Ensure we wait until it's actually done speaking if not interrupted
+        while speech_manager.is_speaking():
+            time.sleep(0.1)

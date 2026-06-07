@@ -31,6 +31,7 @@ class AVASession:
         self.last_intent = None
         self.last_entities = None
         self.last_response_time = 0.0  # Timestamp of last response for follow-up window
+        self.is_active_dialogue = False
 
 
 class AVA:
@@ -92,7 +93,10 @@ class AVA:
                     continue
 
                 # Check if we're within the follow-up window (no wake word needed)
-                in_follow_up = (time.time() - self.session.last_response_time) < FOLLOW_UP_WINDOW
+                time_since_response = time.time() - self.session.last_response_time
+                follow_up_duration = 15.0 if self.session.is_active_dialogue else FOLLOW_UP_WINDOW
+                
+                in_follow_up = time_since_response < follow_up_duration and self.session.last_response_time > 0
                 
                 if in_follow_up:
                     logger.info("Follow-up window active — listening without wake word...")
@@ -102,6 +106,7 @@ class AVA:
                     else:
                         # No command heard, exit follow-up mode
                         self.session.last_response_time = 0.0
+                        self.session.is_active_dialogue = False
                     continue
 
                 # Normal flow: wait for wake word
@@ -157,6 +162,9 @@ class AVA:
         
         # Speak response
         self.voice_processor.speak(response)
+        
+        # Check if the response was a question
+        self.session.is_active_dialogue = '?' in response
         self.session.last_response_time = time.time()
         
         # Store turn in memory
