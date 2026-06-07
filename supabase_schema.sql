@@ -46,11 +46,7 @@ CREATE INDEX IF NOT EXISTS idx_entity_context_user
 -- ══════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS user_tokens (
     user_id TEXT PRIMARY KEY,
-    token TEXT,
-    refresh_token TEXT,
-    token_uri TEXT,
-    client_id TEXT,
-    scopes TEXT[],
+    token_data JSONB,
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
