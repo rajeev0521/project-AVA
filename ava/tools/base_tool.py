@@ -23,6 +23,6 @@ class BaseTool(ABC):
         pass
 
     @abstractmethod
-    async def execute(self, **kwargs) -> Any:
+    async def execute(self, session, **kwargs) -> Any:
         """Executes the tool with the given arguments."""
         pass

@@ -21,5 +21,5 @@ class TimeTool(BaseTool):
             "required": []
         }
 
-    async def execute(self, **kwargs) -> Any:
+    async def execute(self, session, **kwargs) -> Any:
         return datetime.now().isoformat()
